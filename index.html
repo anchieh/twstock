@@ -169,7 +169,11 @@
         <label>殖利率下限(%) <span class="hint">(高為佳)</span> <input type="number" id="screener-yield" step="0.1" /></label>
       </div>
       <div class="screener-row">
+        <label>股價下限(元) <input type="number" id="screener-price-min" step="1" placeholder="留空不限制" /></label>
+        <label>股價上限(元) <input type="number" id="screener-price-max" step="1" placeholder="留空不限制" /></label>
         <label>成交量下限(股) <input type="number" id="screener-volume" step="1000" placeholder="留空不限制" /></label>
+      </div>
+      <div class="screener-row">
         <label>連續獲利年數下限 <input type="number" id="screener-years" step="1" min="0" placeholder="留空不限制" /></label>
         <label>市場別
           <select id="screener-market">
@@ -371,11 +375,20 @@ function screenerFilter() {
   const minVolume = parseFloat(document.getElementById("screener-volume").value);
   const minYears = parseFloat(document.getElementById("screener-years").value);
   const market = document.getElementById("screener-market").value;
+  const minPrice = parseFloat(document.getElementById("screener-price-min").value);
+  const maxPrice = parseFloat(document.getElementById("screener-price-max").value);
 
   return tradableQuotes().filter(r => {
     const pe = parseFloat(r.PERatio);
     const pb = parseFloat(r.PBRatio);
     const yieldPct = parseFloat(r.DividendYield);
+    const price = parseFloat(r.ClosingPrice);
+    if (!isNaN(minPrice)) {
+      if (isNaN(price) || price < minPrice) return false;
+    }
+    if (!isNaN(maxPrice)) {
+      if (isNaN(price) || price > maxPrice) return false;
+    }
     if (!isNaN(maxPE)) {
       if (isNaN(pe) || pe <= 0 || pe > maxPE) return false;
     }
@@ -451,7 +464,7 @@ function search(keyword) {
 
 document.getElementById("search").addEventListener("input", e => search(e.target.value));
 
-["screener-pe", "screener-pb", "screener-yield", "screener-volume", "screener-years", "screener-market", "screener-profitable", "screener-search"].forEach(id => {
+["screener-pe", "screener-pb", "screener-yield", "screener-price-min", "screener-price-max", "screener-volume", "screener-years", "screener-market", "screener-profitable", "screener-search"].forEach(id => {
   document.getElementById(id).addEventListener("input", () => {
     if (activeTab === "screener") renderActiveTab();
   });
