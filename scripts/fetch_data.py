@@ -15,6 +15,8 @@ TWSE_INDEX_URL = "https://openapi.twse.com.tw/v1/exchangeReport/MI_INDEX"
 TPEX_INDEX_URL = "https://www.tpex.org.tw/openapi/v1/tpex_index"
 TWSE_VALUATION_URL = "https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL"
 TPEX_VALUATION_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis"
+TWSE_EPS_URL = "https://openapi.twse.com.tw/v1/opendata/t187ap14_L"
+TPEX_EPS_URL = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap14_O"
 OUTPUT_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "stock_day_all.json"
 
 
@@ -124,6 +126,43 @@ def merge_valuations(quotes: list[dict], valuations: dict[str, dict]) -> None:
             q.update(v)
 
 
+def fetch_eps() -> dict[str, dict]:
+    """抓最新一季的每股盈餘(EPS),用股票代號對應。
+
+    TWSE 跟 TPEx 用字段名稱有全形/半形括號的差異,統一轉成同一個格式。
+    """
+    eps: dict[str, dict] = {}
+
+    resp = requests.get(TWSE_EPS_URL, timeout=10)
+    resp.raise_for_status()
+    for r in resp.json():
+        eps[r["公司代號"]] = {
+            "EPS": r["基本每股盈餘(元)"],
+            "NetIncome": r["稅後淨利"],
+            "EPSYear": r["年度"],
+            "EPSQuarter": r["季別"],
+        }
+
+    resp = requests.get(TPEX_EPS_URL, timeout=10)
+    resp.raise_for_status()
+    for r in resp.json():
+        eps[r["SecuritiesCompanyCode"]] = {
+            "EPS": r["基本每股盈餘"],
+            "NetIncome": r["稅後淨利"],
+            "EPSYear": r["Year"],
+            "EPSQuarter": r["季別"],
+        }
+
+    return eps
+
+
+def merge_eps(quotes: list[dict], eps: dict[str, dict]) -> None:
+    for q in quotes:
+        e = eps.get(q["Code"])
+        if e:
+            q.update(e)
+
+
 def market_averages(quotes: list[dict]) -> dict:
     """算全市場本益比與殖利率的平均值,給前端當篩選預設門檻。"""
 
@@ -160,6 +199,7 @@ def main() -> None:
     quotes = fetch_twse() + fetch_tpex()
     indices = fetch_indices()
     merge_valuations(quotes, fetch_valuations())
+    merge_eps(quotes, fetch_eps())
     averages = market_averages(quotes)
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)

@@ -115,6 +115,7 @@
     color: var(--fg);
   }
   .screener-note { color: var(--muted); font-size: 0.8rem; margin-bottom: 12px; }
+  .screener-checkbox { display: block; font-size: 0.9rem; margin-bottom: 10px; }
 </style>
 </head>
 <body>
@@ -142,6 +143,7 @@
         <label>股價淨值比上限 <input type="number" id="screener-pb" step="0.1" /></label>
         <label>殖利率下限(%) <input type="number" id="screener-yield" step="0.1" /></label>
       </div>
+      <label class="screener-checkbox"><input type="checkbox" id="screener-profitable" checked /> 只看今年累計有獲利的公司(EPS &gt; 0)</label>
       <div class="screener-note" id="screener-note"></div>
     </div>
 
@@ -224,10 +226,11 @@ function renderTable(rows) {
       <td>${r.PERatio || "-"}</td>
       <td>${r.PBRatio || "-"}</td>
       <td>${r.DividendYield ? r.DividendYield + "%" : "-"}</td>
+      <td class="${r.EPS !== undefined && parseFloat(r.EPS) < 0 ? "down" : ""}">${r.EPS !== undefined ? r.EPS : "-"}</td>
     </tr>`;
   }).join("");
   result.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th></th><th>代號</th><th>名稱</th><th>開盤</th><th>最高</th><th>最低</th><th>收盤</th><th>漲跌</th><th>成交量</th><th>本益比</th><th>淨值比</th><th>殖利率</th></tr></thead>
+    <thead><tr><th></th><th>代號</th><th>名稱</th><th>開盤</th><th>最高</th><th>最低</th><th>收盤</th><th>漲跌</th><th>成交量</th><th>本益比</th><th>淨值比</th><th>殖利率</th><th>累計EPS</th></tr></thead>
     <tbody>${body}</tbody>
   </table></div>`;
   result.querySelectorAll(".star").forEach(el => {
@@ -256,6 +259,10 @@ function screenerFilter() {
     }
     if (!isNaN(minYield)) {
       if (isNaN(yieldPct) || yieldPct < minYield) return false;
+    }
+    if (document.getElementById("screener-profitable").checked) {
+      const eps = parseFloat(r.EPS);
+      if (isNaN(eps) || eps <= 0) return false;
     }
     return true;
   }).sort((a, b) => parseFloat(a.PERatio) - parseFloat(b.PERatio));
@@ -305,7 +312,7 @@ function search(keyword) {
 
 document.getElementById("search").addEventListener("input", e => search(e.target.value));
 
-["screener-pe", "screener-pb", "screener-yield"].forEach(id => {
+["screener-pe", "screener-pb", "screener-yield", "screener-profitable"].forEach(id => {
   document.getElementById(id).addEventListener("input", () => {
     if (activeTab === "screener") renderActiveTab();
   });
@@ -348,8 +355,10 @@ fetch(DATA_URL)
     document.getElementById("screener-pe").value = avg.medianPERatio ?? "";
     document.getElementById("screener-pb").value = 1;
     document.getElementById("screener-yield").value = avg.medianDividendYield ?? "";
+    const epsSample = quotes.find(r => r.EPSYear && r.EPSQuarter);
+    const epsPeriod = epsSample ? `${parseInt(epsSample.EPSYear, 10) + 1911}年第${epsSample.EPSQuarter}季累計` : "最新一季累計";
     document.getElementById("screener-note").textContent =
-      `預設門檻:本益比 ≤ 全市場中位數(${avg.medianPERatio ?? "-"}),股價淨值比 ≤ 1(代表股價低於帳面淨值),殖利率 ≥ 全市場中位數(${avg.medianDividendYield ?? "-"}%)。可自行調整,留空代表不限制這項。`;
+      `預設門檻:本益比 ≤ 全市場中位數(${avg.medianPERatio ?? "-"}),股價淨值比 ≤ 1(代表股價低於帳面淨值),殖利率 ≥ 全市場中位數(${avg.medianDividendYield ?? "-"}%)。可自行調整,留空代表不限制這項。EPS 為公開資訊觀測站揭露的${epsPeriod}每股盈餘,部分剛掛牌或資料延遲的公司可能還沒有這季的數字。`;
 
     renderActiveTab();
   })
