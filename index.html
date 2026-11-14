@@ -152,6 +152,7 @@
   }
   .screener-presets button:hover { background: var(--accent); color: #fff; }
   .hint { font-weight: 400; opacity: 0.75; }
+  .label-head { display: block; min-height: 2.4em; line-height: 1.2; }
 </style>
 </head>
 <body>
@@ -176,30 +177,33 @@
     <div id="screener-pane">
       <div class="screener-presets" id="screener-presets"></div>
       <div class="screener-row">
-        <label>本益比上限 <span class="hint">(低為佳)</span> <input type="number" id="screener-pe" step="0.1" /></label>
-        <label>股價淨值比上限 <span class="hint">(低為佳)</span> <input type="number" id="screener-pb" step="0.1" /></label>
-        <label>殖利率下限(%) <span class="hint">(高為佳)</span> <input type="number" id="screener-yield" step="0.1" /></label>
+        <label><span class="label-head">本益比上限 <span class="hint">(低為佳)</span></span><input type="number" id="screener-pe" step="0.1" /></label>
+        <label><span class="label-head">股價淨值比上限 <span class="hint">(低為佳)</span></span><input type="number" id="screener-pb" step="0.1" /></label>
+        <label><span class="label-head">殖利率下限(%) <span class="hint">(高為佳)</span></span><input type="number" id="screener-yield" step="0.1" /></label>
       </div>
       <div class="screener-row">
-        <label>股價下限(元) <input type="number" id="screener-price-min" step="1" placeholder="留空不限制" /></label>
-        <label>股價上限(元) <input type="number" id="screener-price-max" step="1" placeholder="留空不限制" /></label>
-        <label>成交量下限(股) <input type="number" id="screener-volume" step="1000" placeholder="留空不限制" /></label>
+        <label><span class="label-head">本金(元) <span class="hint">(抓滿一張股票,股價上限會自動算)</span></span><input type="number" id="screener-budget" step="1000" min="0" placeholder="例如 20000" /></label>
+        <label><span class="label-head">股價下限(元)</span><input type="number" id="screener-price-min" step="1" placeholder="留空不限制" /></label>
+        <label><span class="label-head">股價上限(元) <span class="hint">(可手動覆蓋本金算出來的值)</span></span><input type="number" id="screener-price-max" step="1" placeholder="留空不限制" /></label>
       </div>
       <div class="screener-row">
-        <label>日內振幅下限(%) <span class="hint">(要夠大才有操作空間)</span> <input type="number" id="screener-volatility-min" step="0.5" min="0" placeholder="留空不限制" /></label>
-        <label>日內振幅上限(%) <span class="hint">(避免過度暴衝的極端股)</span> <input type="number" id="screener-volatility-max" step="0.5" min="0" placeholder="留空不限制" /></label>
-        <label>連續獲利年數下限 <input type="number" id="screener-years" step="1" min="0" placeholder="留空不限制" /></label>
+        <label><span class="label-head">成交量下限(股)</span><input type="number" id="screener-volume" step="1000" placeholder="留空不限制" /></label>
+        <label><span class="label-head">日內振幅下限(%) <span class="hint">(要夠大才有操作空間)</span></span><input type="number" id="screener-volatility-min" step="0.5" min="0" placeholder="留空不限制" /></label>
+        <label><span class="label-head">日內振幅上限(%) <span class="hint">(避免過度暴衝的極端股)</span></span><input type="number" id="screener-volatility-max" step="0.5" min="0" placeholder="留空不限制" /></label>
       </div>
       <div class="screener-row">
-        <label>6日乖離率絕對值下限(%) <span class="hint">(要夠大才有乖離可以套)</span> <input type="number" id="screener-bias-min" step="0.5" min="0" placeholder="留空不限制" /></label>
-        <label>市場別
+        <label><span class="label-head">連續獲利年數下限</span><input type="number" id="screener-years" step="1" min="0" placeholder="留空不限制" /></label>
+        <label><span class="label-head">6日乖離率絕對值下限(%) <span class="hint">(要夠大才有乖離可以套)</span></span><input type="number" id="screener-bias-min" step="0.5" min="0" placeholder="留空不限制" /></label>
+        <label><span class="label-head">市場別</span>
           <select id="screener-market">
             <option value="">全部</option>
             <option value="TWSE">只看上市</option>
             <option value="TPEx">只看上櫃</option>
           </select>
         </label>
-        <label>產業別
+      </div>
+      <div class="screener-row">
+        <label><span class="label-head">產業別</span>
           <select id="screener-industry">
             <option value="">全部</option>
           </select>
@@ -234,6 +238,7 @@ const SCREENER_PRESETS = [
       "screener-pe": marketAverages.p25PERatio ?? "",
       "screener-pb": 0.8,
       "screener-yield": marketAverages.p75DividendYield ?? "",
+      "screener-budget": "",
       "screener-price-min": "",
       "screener-price-max": "",
       "screener-volume": "",
@@ -253,8 +258,9 @@ const SCREENER_PRESETS = [
       "screener-pe": "",
       "screener-pb": "",
       "screener-yield": "",
+      "screener-budget": 20000,
       "screener-price-min": 10,
-      "screener-price-max": 19,
+      "screener-price-max": 20,
       "screener-volume": 10000000,
       "screener-volatility-min": 2,
       "screener-volatility-max": 8,
@@ -588,6 +594,13 @@ document.getElementById("search").addEventListener("input", e => search(e.target
   document.getElementById(id).addEventListener("input", () => {
     if (activeTab === "screener") renderActiveTab();
   });
+});
+
+document.getElementById("screener-budget").addEventListener("input", e => {
+  const budget = parseFloat(e.target.value);
+  // 台股一張是 1000 股,本金除以 1000 就是買滿一張能接受的股價上限
+  document.getElementById("screener-price-max").value = isNaN(budget) ? "" : Math.floor(budget / 1000);
+  if (activeTab === "screener") renderActiveTab();
 });
 
 document.querySelectorAll(".tab").forEach(tab => {
