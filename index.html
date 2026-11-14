@@ -115,6 +115,7 @@
     color: var(--fg);
   }
   .screener-note { color: var(--muted); font-size: 0.8rem; margin-bottom: 12px; }
+  .screener-count { color: var(--muted); font-size: 0.8rem; margin: 8px 0 4px; }
   .screener-checkbox { display: block; font-size: 0.9rem; margin-bottom: 10px; }
 </style>
 </head>
@@ -145,6 +146,8 @@
       </div>
       <label class="screener-checkbox"><input type="checkbox" id="screener-profitable" checked /> <span id="screener-profitable-label">只看累計有獲利的公司(EPS &gt; 0)</span></label>
       <div class="screener-note" id="screener-note"></div>
+      <input type="text" id="screener-search" placeholder="在篩選結果中搜尋代號或名稱(選填),例如 2303 或 聯電" autocomplete="off" />
+      <div class="screener-count" id="screener-count"></div>
     </div>
 
     <div id="result"></div>
@@ -295,7 +298,17 @@ function renderActiveTab() {
     const rows = quotes.filter(r => watchlist.includes(r.Code));
     renderTable(rows);
   } else if (activeTab === "screener") {
-    renderTable(screenerFilter().slice(0, 50));
+    const matched = screenerFilter();
+    const kw = document.getElementById("screener-search").value.trim().toLowerCase();
+    const filtered = kw
+      ? matched.filter(r => r.Code.toLowerCase().includes(kw) || r.Name.toLowerCase().includes(kw))
+      : matched;
+    const shown = filtered.slice(0, 200);
+    const countEl = document.getElementById("screener-count");
+    countEl.textContent = kw
+      ? `符合篩選條件共 ${matched.length} 檔,搜尋「${kw}」後剩 ${filtered.length} 檔${filtered.length > shown.length ? `,顯示前 ${shown.length} 筆` : ""}`
+      : `符合篩選條件共 ${matched.length} 檔${matched.length > shown.length ? `,顯示前 ${shown.length} 筆(本益比由低到高),可用上面的搜尋框直接找特定股票` : ""}`;
+    renderTable(shown);
   }
 }
 
@@ -313,7 +326,7 @@ function search(keyword) {
 
 document.getElementById("search").addEventListener("input", e => search(e.target.value));
 
-["screener-pe", "screener-pb", "screener-yield", "screener-profitable"].forEach(id => {
+["screener-pe", "screener-pb", "screener-yield", "screener-profitable", "screener-search"].forEach(id => {
   document.getElementById(id).addEventListener("input", () => {
     if (activeTab === "screener") renderActiveTab();
   });
