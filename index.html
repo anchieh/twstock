@@ -139,6 +139,7 @@
   .screener-note { color: var(--muted); font-size: 0.8rem; margin-bottom: 12px; }
   .screener-count { color: var(--muted); font-size: 0.8rem; margin: 8px 0 4px; }
   .screener-checkbox { display: block; font-size: 0.9rem; margin-bottom: 10px; }
+  .hint { font-weight: 400; opacity: 0.75; }
 </style>
 </head>
 <body>
@@ -162,9 +163,9 @@
 
     <div id="screener-pane">
       <div class="screener-row">
-        <label>本益比上限 <input type="number" id="screener-pe" step="0.1" /></label>
-        <label>股價淨值比上限 <input type="number" id="screener-pb" step="0.1" /></label>
-        <label>殖利率下限(%) <input type="number" id="screener-yield" step="0.1" /></label>
+        <label>本益比上限 <span class="hint">(低為佳)</span> <input type="number" id="screener-pe" step="0.1" /></label>
+        <label>股價淨值比上限 <span class="hint">(低為佳)</span> <input type="number" id="screener-pb" step="0.1" /></label>
+        <label>殖利率下限(%) <span class="hint">(高為佳)</span> <input type="number" id="screener-yield" step="0.1" /></label>
       </div>
       <label class="screener-checkbox"><input type="checkbox" id="screener-profitable" checked /> <span id="screener-profitable-label">只看累計有獲利的公司(EPS &gt; 0)</span></label>
       <div class="screener-note" id="screener-note"></div>
