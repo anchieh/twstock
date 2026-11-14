@@ -140,6 +140,17 @@
   .screener-note { color: var(--muted); font-size: 0.8rem; margin-bottom: 12px; }
   .screener-count { color: var(--muted); font-size: 0.8rem; margin: 8px 0 4px; }
   .screener-checkbox { display: block; font-size: 0.9rem; margin-bottom: 10px; }
+  .screener-presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .screener-presets button {
+    padding: 7px 14px;
+    font-size: 0.85rem;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .screener-presets button:hover { background: var(--accent); color: #fff; }
   .hint { font-weight: 400; opacity: 0.75; }
 </style>
 </head>
@@ -163,6 +174,7 @@
     </div>
 
     <div id="screener-pane">
+      <div class="screener-presets" id="screener-presets"></div>
       <div class="screener-row">
         <label>本益比上限 <span class="hint">(低為佳)</span> <input type="number" id="screener-pe" step="0.1" /></label>
         <label>股價淨值比上限 <span class="hint">(低為佳)</span> <input type="number" id="screener-pb" step="0.1" /></label>
@@ -196,6 +208,61 @@
 const DATA_URL = "data/stock_day_all.json";
 const WATCHLIST_KEY = "twstock-watchlist";
 let quotes = [];
+let marketAverages = {};
+
+// 「ticket」= 一組寫死的篩選參數組合,按一下按鈕就把 screener-pane 裡所有欄位設成這組值。
+// 要新增自己的 ticket,照這個格式加一筆進陣列就好:
+//   name: 按鈕上顯示的名字
+//   fields: screener-pane 裡各 <input>/<select> 的 id -> 要填入的值,留空字串代表「不限制」
+//   profitable: 「只看累計有獲利」勾選框要不要打勾
+// fields 也可以是函式(取得 marketAverages 之類的即時資料時用),回傳值物件。
+const SCREENER_PRESETS = [
+  {
+    name: "低估價值股(預設)",
+    fields: () => ({
+      "screener-pe": marketAverages.medianPERatio ?? "",
+      "screener-pb": 1,
+      "screener-yield": marketAverages.medianDividendYield ?? "",
+      "screener-price-min": "",
+      "screener-price-max": "",
+      "screener-volume": "",
+      "screener-years": "",
+      "screener-market": "",
+    }),
+    profitable: true,
+  },
+  {
+    name: "短線小資(2萬本金)",
+    fields: {
+      "screener-pe": "",
+      "screener-pb": "",
+      "screener-yield": "",
+      "screener-price-min": "",
+      "screener-price-max": 19,
+      "screener-volume": 5000000,
+      "screener-years": "",
+      "screener-market": "",
+    },
+    profitable: false,
+  },
+];
+
+function applyScreenerPreset(preset) {
+  const fields = typeof preset.fields === "function" ? preset.fields() : preset.fields;
+  Object.entries(fields).forEach(([id, value]) => {
+    document.getElementById(id).value = value;
+  });
+  document.getElementById("screener-profitable").checked = preset.profitable;
+  renderActiveTab();
+}
+
+function renderScreenerPresets() {
+  const el = document.getElementById("screener-presets");
+  el.innerHTML = SCREENER_PRESETS.map((p, i) => `<button type="button" data-index="${i}">${p.name}</button>`).join("");
+  el.querySelectorAll("button").forEach(btn => {
+    btn.addEventListener("click", () => applyScreenerPreset(SCREENER_PRESETS[Number(btn.dataset.index)]));
+  });
+}
 let activeTab = "search";
 
 function loadWatchlist() {
@@ -503,10 +570,12 @@ fetch(DATA_URL)
       `資料日期: ${latestDate}(來源: TWSE / TPEx 官方 OpenAPI,更新於 ${data.updated_at}）`;
     renderIndices(data.indices);
 
-    const avg = data.marketAverages || {};
+    marketAverages = data.marketAverages || {};
+    const avg = marketAverages;
     document.getElementById("screener-pe").value = avg.medianPERatio ?? "";
     document.getElementById("screener-pb").value = 1;
     document.getElementById("screener-yield").value = avg.medianDividendYield ?? "";
+    renderScreenerPresets();
     const epsSample = quotes.find(r => r.EPSYear && r.EPSQuarter);
     const epsPeriod = epsSample ? `${parseInt(epsSample.EPSYear, 10) + 1911}年第${epsSample.EPSQuarter}季累計` : "最新一季累計";
     document.getElementById("screener-profitable-label").textContent =
