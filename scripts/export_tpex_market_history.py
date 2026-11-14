@@ -47,16 +47,24 @@ def tpex_codes() -> dict[str, str]:
     return {q["Code"]: q["Name"] for q in data["quotes"] if q["Market"] == "TPEx"}
 
 
+class RateLimited(Exception):
+    """FinMind 額度用完,跟「這檔代號真的沒資料」要分開處理,不能誤標成已完成。"""
+
+
 def fetch_stock_year(code: str, start_date: str, end_date: str) -> list[dict] | None:
     resp = SESSION.get(
         FINMIND_URL,
         params={"dataset": "TaiwanStockPrice", "data_id": code, "start_date": start_date, "end_date": end_date},
         timeout=15,
     )
-    if resp.status_code in (400, 402):
-        return None  # 額度用完或這檔代號沒資料,跳過
+    if resp.status_code == 402:
+        raise RateLimited()
+    if resp.status_code == 400:
+        return None  # 這檔代號真的查不到(格式或下市等),跳過且標記完成
     resp.raise_for_status()
     body = resp.json()
+    if body.get("status") == 402:
+        raise RateLimited()
     if body.get("status") != 200:
         return None
     return body.get("data", [])
@@ -103,7 +111,13 @@ def main() -> None:
                 print("時間到,存檔並結束這次執行")
                 break
 
-            rows = fetch_stock_year(code, start_date, end_date)
+            try:
+                rows = fetch_stock_year(code, start_date, end_date)
+            except RateLimited:
+                print(f"額度用完,停止這次執行,{code} 留給下次重試(不標記完成)")
+                save_state(done)
+                return
+
             if rows:
                 for r in rows:
                     writer.writerow([
