@@ -141,10 +141,11 @@ function saveWatchlist(list) {
   }
 }
 
-function toggleWatchlist(code) {
+function toggleWatchlist(code, name) {
   const list = loadWatchlist();
   const idx = list.indexOf(code);
   if (idx >= 0) {
+    if (!confirm(`要把「${name}」從自選股移除嗎?`)) return;
     list.splice(idx, 1);
   } else {
     list.push(code);
@@ -182,7 +183,7 @@ function renderTable(rows) {
     const pctText = pct === null ? "" : ` (${pct > 0 ? "+" : ""}${pct.toFixed(2)}%)`;
     const starred = watchlist.includes(r.Code);
     return `<tr>
-      <td class="star ${starred ? "active" : ""}" data-code="${r.Code}">${starred ? "★" : "☆"}</td>
+      <td class="star ${starred ? "active" : ""}" data-code="${r.Code}" data-name="${r.Name}">${starred ? "★" : "☆"}</td>
       <td>${r.Code}</td>
       <td>${r.Name}<span class="market">${r.Market === "TPEx" ? "上櫃" : "上市"}</span></td>
       <td>${r.OpeningPrice}</td>
@@ -198,7 +199,7 @@ function renderTable(rows) {
     <tbody>${body}</tbody>
   </table></div>`;
   result.querySelectorAll(".star").forEach(el => {
-    el.addEventListener("click", () => toggleWatchlist(el.dataset.code));
+    el.addEventListener("click", () => toggleWatchlist(el.dataset.code, el.dataset.name));
   });
 }
 
