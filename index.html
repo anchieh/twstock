@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>台股收盤行情查詢</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --fg: #1a1a1a;
+    --bg: #ffffff;
+    --muted: #666;
+    --border: #ddd;
+    --up: #c0392b;
+    --down: #1e8449;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #eee;
+      --bg: #121212;
+      --muted: #999;
+      --border: #333;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 60px;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 1.3rem; margin: 0 0 4px; }
+  .updated { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+  input[type="text"] {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--fg);
+  }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 0.9rem; }
+  th, td { text-align: right; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  th:nth-child(1), td:nth-child(1), th:nth-child(2), td:nth-child(2) { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+  .empty, .status { color: var(--muted); text-align: center; padding: 24px 0; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>台股收盤行情查詢</h1>
+    <div class="updated" id="updated">載入中...</div>
+    <input type="text" id="search" placeholder="輸入股票代號或名稱,例如 2330 或 台積電" autocomplete="off" />
+    <div id="result"></div>
+  </div>
+
+<script>
+const DATA_URL = "data/stock_day_all.json";
+let quotes = [];
+
+function rocToIso(roc) {
+  const year = parseInt(roc.slice(0, -4), 10) + 1911;
+  return `${year}-${roc.slice(-4, -2)}-${roc.slice(-2)}`;
+}
+
+function renderTable(rows) {
+  const result = document.getElementById("result");
+  if (rows.length === 0) {
+    result.innerHTML = '<div class="empty">沒有符合的股票</div>';
+    return;
+  }
+  const body = rows.slice(0, 50).map(r => {
+    const change = parseFloat(r.Change);
+    const cls = change > 0 ? "up" : change < 0 ? "down" : "";
+    const sign = change > 0 ? "+" : "";
+    return `<tr>
+      <td>${r.Code}</td>
+      <td>${r.Name}</td>
+      <td>${r.OpeningPrice}</td>
+      <td>${r.HighestPrice}</td>
+      <td>${r.LowestPrice}</td>
+      <td>${r.ClosingPrice}</td>
+      <td class="${cls}">${sign}${r.Change}</td>
+    </tr>`;
+  }).join("");
+  result.innerHTML = `<table>
+    <thead><tr><th>代號</th><th>名稱</th><th>開盤</th><th>最高</th><th>最低</th><th>收盤</th><th>漲跌</th></tr></thead>
+    <tbody>${body}</tbody>
+  </table>`;
+}
+
+function search(keyword) {
+  const kw = keyword.trim().toLowerCase();
+  if (!kw) {
+    renderTable([]);
+    return;
+  }
+  const matched = quotes.filter(r =>
+    r.Code.toLowerCase().includes(kw) || r.Name.toLowerCase().includes(kw)
+  );
+  renderTable(matched);
+}
+
+document.getElementById("search").addEventListener("input", e => search(e.target.value));
+
+fetch(DATA_URL)
+  .then(res => res.json())
+  .then(data => {
+    quotes = data.quotes;
+    const latestDate = quotes[0] ? rocToIso(quotes[0].Date) : "-";
+    document.getElementById("updated").textContent =
+      `資料日期: ${latestDate}(來源: TWSE 官方 OpenAPI,更新於 ${data.updated_at}）`;
+    document.getElementById("result").innerHTML = '<div class="status">輸入股票代號或名稱開始查詢</div>';
+  })
+  .catch(() => {
+    document.getElementById("updated").textContent = "資料載入失敗";
+  });
+</script>
+</body>
+</html>
