@@ -1,2 +1,4 @@
 __pycache__/
 *.pyc
+# 量化分析用的一次性資料匯出,不是網站功能,用 SendUserFile 直接給使用者,不進 repo
+data/exports/
