@@ -27,6 +27,13 @@ TWSE_EPS_URL = "https://openapi.twse.com.tw/v1/opendata/t187ap14_L"
 TPEX_EPS_URL = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap14_O"
 OUTPUT_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "stock_day_all.json"
 EPS_HISTORY_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "eps_history.json"
+PRICE_HISTORY_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "price_history.json"
+PRICE_HISTORY_MAX_DAYS = 30
+
+
+def roc_to_iso(roc_date: str) -> str:
+    year = int(roc_date[:-4]) + 1911
+    return f"{year}-{roc_date[-4:-2]}-{roc_date[-2:]}"
 
 
 def fetch_twse() -> list[dict]:
@@ -227,6 +234,54 @@ def consecutive_profitable_years(records: list[dict]) -> int:
         count += 1
         expected_year = int(year) - 1
     return count
+
+
+def load_price_history() -> dict[str, list[list]]:
+    if PRICE_HISTORY_PATH.exists():
+        return json.loads(PRICE_HISTORY_PATH.read_text(encoding="utf-8"))
+    return {}
+
+
+def save_price_history(history: dict[str, list[list]]) -> None:
+    PRICE_HISTORY_PATH.write_text(
+        json.dumps(history, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+
+def update_price_history(history: dict[str, list[list]], quotes: list[dict]) -> None:
+    """把今天的收盤價存進歷史記錄,每天呼叫一次慢慢累積,用來算乖離率(跟均線的偏離)。
+
+    這邊沒有額外打 API 回補歷史,因為 STOCK_DAY_ALL 本身就只有當天的資料;
+    歷史序列只能從今天開始,每天執行一次慢慢累積,累積不到門檻天數的均線不會顯示。
+    """
+    for q in quotes:
+        close_raw = q.get("ClosingPrice")
+        if not close_raw:
+            continue
+        try:
+            close = float(close_raw)
+        except ValueError:
+            continue
+        date_iso = roc_to_iso(q["Date"])
+        records = history.setdefault(q["Code"], [])
+        if records and records[-1][0] == date_iso:
+            records[-1][1] = close
+        else:
+            records.append([date_iso, close])
+        history[q["Code"]] = records[-PRICE_HISTORY_MAX_DAYS:]
+
+
+def compute_bias(records: list[list], window: int) -> float | None:
+    """算乖離率:(今天收盤價 - N 日均線) / N 日均線 * 100。資料不夠 N 天就回傳 None。"""
+    if len(records) < window:
+        return None
+    closes = [r[1] for r in records[-window:]]
+    moving_average = sum(closes) / window
+    if not moving_average:
+        return None
+    latest_close = records[-1][1]
+    return round((latest_close - moving_average) / moving_average * 100, 2)
 
 
 def market_averages(quotes: list[dict]) -> dict:
