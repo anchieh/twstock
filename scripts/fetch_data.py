@@ -335,6 +335,18 @@ def main() -> None:
             if years:
                 q["ConsecutiveProfitableYears"] = years
 
+    price_history = load_price_history()
+    update_price_history(price_history, quotes)
+    save_price_history(price_history)
+    for q in quotes:
+        records = price_history.get(q["Code"], [])
+        if records:
+            q["PriceHistoryDaysTracked"] = len(records)
+            for window in (6, 10, 20):
+                bias = compute_bias(records, window)
+                if bias is not None:
+                    q[f"Bias{window}"] = bias
+
     averages = market_averages(quotes)
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)

@@ -191,6 +191,7 @@
         <label>連續獲利年數下限 <input type="number" id="screener-years" step="1" min="0" placeholder="留空不限制" /></label>
       </div>
       <div class="screener-row">
+        <label>6日乖離率絕對值下限(%) <span class="hint">(要夠大才有乖離可以套)</span> <input type="number" id="screener-bias-min" step="0.5" min="0" placeholder="留空不限制" /></label>
         <label>市場別
           <select id="screener-market">
             <option value="">全部</option>
@@ -234,6 +235,7 @@ const SCREENER_PRESETS = [
       "screener-volatility-min": "",
       "screener-volatility-max": "",
       "screener-years": "",
+      "screener-bias-min": "",
       "screener-market": "",
     }),
     profitable: true,
@@ -251,6 +253,7 @@ const SCREENER_PRESETS = [
       "screener-volatility-min": 2,
       "screener-volatility-max": 8,
       "screener-years": "",
+      "screener-bias-min": "",
       "screener-market": "",
     },
     excludeEtf: true,
@@ -345,6 +348,7 @@ const COLUMNS = [
   { key: "yield", label: "殖利率", accessor: r => parseFloat(r.DividendYield) },
   { key: "eps", label: "累計EPS", accessor: r => parseFloat(r.EPS) },
   { key: "years", label: "連續獲利年數", accessor: r => r.ConsecutiveProfitableYears || 0 },
+  { key: "bias6", label: "6日乖離率", accessor: r => r.Bias6 },
 ];
 
 let tableRows = [];
@@ -409,6 +413,7 @@ function renderCurrentTable() {
       <td>${r.DividendYield ? r.DividendYield + "%" : "-"}</td>
       <td class="${r.EPS !== undefined && parseFloat(r.EPS) < 0 ? "down" : ""}">${r.EPS !== undefined ? r.EPS : "-"}</td>
       <td>${r.ConsecutiveProfitableYears ? r.ConsecutiveProfitableYears + " 年" : "累積中"}</td>
+      <td class="${r.Bias6 > 0 ? "up" : r.Bias6 < 0 ? "down" : ""}">${r.Bias6 !== undefined ? (r.Bias6 > 0 ? "+" : "") + r.Bias6 + "%" : "累積中"}</td>
     </tr>`;
   }).join("");
 
@@ -468,6 +473,7 @@ function screenerFilter() {
   const maxPrice = parseFloat(document.getElementById("screener-price-max").value);
   const minVolatility = parseFloat(document.getElementById("screener-volatility-min").value);
   const maxVolatility = parseFloat(document.getElementById("screener-volatility-max").value);
+  const minBias = parseFloat(document.getElementById("screener-bias-min").value);
 
   return tradableQuotes().filter(r => {
     const pe = parseFloat(r.PERatio);
@@ -488,6 +494,9 @@ function screenerFilter() {
     }
     if (document.getElementById("screener-exclude-etf").checked && r.Code.startsWith("00")) {
       return false;
+    }
+    if (!isNaN(minBias)) {
+      if (r.Bias6 === undefined || Math.abs(r.Bias6) < minBias) return false;
     }
     if (!isNaN(maxPE)) {
       if (isNaN(pe) || pe <= 0 || pe > maxPE) return false;
@@ -564,7 +573,7 @@ function search(keyword) {
 
 document.getElementById("search").addEventListener("input", e => search(e.target.value));
 
-["screener-pe", "screener-pb", "screener-yield", "screener-price-min", "screener-price-max", "screener-volume", "screener-volatility-min", "screener-volatility-max", "screener-years", "screener-market", "screener-profitable", "screener-exclude-etf", "screener-search"].forEach(id => {
+["screener-pe", "screener-pb", "screener-yield", "screener-price-min", "screener-price-max", "screener-volume", "screener-volatility-min", "screener-volatility-max", "screener-years", "screener-bias-min", "screener-market", "screener-profitable", "screener-exclude-etf", "screener-search"].forEach(id => {
   document.getElementById(id).addEventListener("input", () => {
     if (activeTab === "screener") renderActiveTab();
   });
@@ -614,7 +623,7 @@ fetch(DATA_URL)
     document.getElementById("screener-profitable-label").textContent =
       `只看${epsPeriod}有獲利的公司(EPS > 0,注意:年度還沒結束,這不是全年獲利保證)`;
     document.getElementById("screener-note").textContent =
-      `預設門檻:本益比 ≤ 全市場中位數(${avg.medianPERatio ?? "-"}),股價淨值比 ≤ 1(代表股價低於帳面淨值),殖利率 ≥ 全市場中位數(${avg.medianDividendYield ?? "-"}%)。可自行調整,留空代表不限制這項。EPS 為公開資訊觀測站揭露的${epsPeriod}每股盈餘,部分剛掛牌或資料延遲的公司可能還沒有這季的數字。「連續獲利年數」從這次開始每季自動累積官方年度財報數字,目前還沒有完整年度資料,會顯示「累積中」,要等到有完整年度資料後才會顯示實際年數。`;
+      `預設門檻:本益比 ≤ 全市場中位數(${avg.medianPERatio ?? "-"}),股價淨值比 ≤ 1(代表股價低於帳面淨值),殖利率 ≥ 全市場中位數(${avg.medianDividendYield ?? "-"}%)。可自行調整,留空代表不限制這項。EPS 為公開資訊觀測站揭露的${epsPeriod}每股盈餘,部分剛掛牌或資料延遲的公司可能還沒有這季的數字。「連續獲利年數」從這次開始每季自動累積官方年度財報數字,目前還沒有完整年度資料,會顯示「累積中」,要等到有完整年度資料後才會顯示實際年數。「6日乖離率」是從今天開始每天累積收盤價算的,要連續累積滿 6 個交易日才會有數字,之前都會顯示「累積中」。`;
 
     renderActiveTab();
   })
