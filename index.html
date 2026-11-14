@@ -187,6 +187,7 @@
       </div>
       <div class="screener-row">
         <label>連續獲利年數下限 <input type="number" id="screener-years" step="1" min="0" placeholder="留空不限制" /></label>
+        <label>日內振幅上限(%) <span class="hint">(低為佳,越低代表當天越不劇烈)</span> <input type="number" id="screener-volatility" step="0.5" min="0" placeholder="留空不限制" /></label>
         <label>市場別
           <select id="screener-market">
             <option value="">全部</option>
@@ -196,6 +197,7 @@
         </label>
       </div>
       <label class="screener-checkbox"><input type="checkbox" id="screener-profitable" checked /> <span id="screener-profitable-label">只看累計有獲利的公司(EPS &gt; 0)</span></label>
+      <label class="screener-checkbox"><input type="checkbox" id="screener-exclude-etf" /> 排除 ETF/受益憑證(代號 00 開頭,含槓桿、反向商品)</label>
       <div class="screener-note" id="screener-note"></div>
       <input type="text" id="screener-search" placeholder="在篩選結果中搜尋代號或名稱(選填),例如 2303 或 聯電" autocomplete="off" />
       <div class="screener-count" id="screener-count"></div>
@@ -226,23 +228,27 @@ const SCREENER_PRESETS = [
       "screener-price-min": "",
       "screener-price-max": "",
       "screener-volume": "",
+      "screener-volatility": "",
       "screener-years": "",
       "screener-market": "",
     }),
     profitable: true,
+    excludeEtf: false,
   },
   {
-    name: "短線小資(2萬本金)",
+    name: "短線小資(2萬本金,保本優先)",
     fields: {
       "screener-pe": "",
       "screener-pb": "",
       "screener-yield": "",
-      "screener-price-min": "",
+      "screener-price-min": 10,
       "screener-price-max": 19,
-      "screener-volume": 5000000,
+      "screener-volume": 10000000,
+      "screener-volatility": 4,
       "screener-years": "",
       "screener-market": "",
     },
+    excludeEtf: true,
     profitable: false,
   },
 ];
@@ -253,6 +259,7 @@ function applyScreenerPreset(preset) {
     document.getElementById(id).value = value;
   });
   document.getElementById("screener-profitable").checked = preset.profitable;
+  document.getElementById("screener-exclude-etf").checked = !!preset.excludeEtf;
   renderActiveTab();
 }
 
@@ -308,6 +315,14 @@ function percentChange(r) {
   return (change / prevClose) * 100;
 }
 
+function intradayVolatility(r) {
+  const high = parseFloat(r.HighestPrice);
+  const low = parseFloat(r.LowestPrice);
+  const close = parseFloat(r.ClosingPrice);
+  if (isNaN(high) || isNaN(low) || !close) return null;
+  return ((high - low) / close) * 100;
+}
+
 const PAGE_SIZE = 25;
 const COLUMNS = [
   { label: "", sortable: false },
@@ -319,6 +334,7 @@ const COLUMNS = [
   { key: "close", label: "收盤", accessor: r => parseFloat(r.ClosingPrice) },
   { key: "change", label: "漲跌", accessor: r => percentChange(r) ?? parseFloat(r.Change) },
   { key: "volume", label: "成交量", accessor: r => Number(r.TradeVolume) || 0 },
+  { key: "volatility", label: "日內振幅", accessor: r => intradayVolatility(r) },
   { key: "pe", label: "本益比", accessor: r => parseFloat(r.PERatio) },
   { key: "pb", label: "淨值比", accessor: r => parseFloat(r.PBRatio) },
   { key: "yield", label: "殖利率", accessor: r => parseFloat(r.DividendYield) },
@@ -382,6 +398,7 @@ function renderCurrentTable() {
       <td>${r.ClosingPrice}</td>
       <td class="${cls}">${sign}${r.Change}${pctText}</td>
       <td>${r.TradeVolume ? Number(r.TradeVolume).toLocaleString() : ""}</td>
+      <td>${intradayVolatility(r) !== null ? intradayVolatility(r).toFixed(2) + "%" : "-"}</td>
       <td>${r.PERatio || "-"}</td>
       <td>${r.PBRatio || "-"}</td>
       <td>${r.DividendYield ? r.DividendYield + "%" : "-"}</td>
@@ -444,6 +461,7 @@ function screenerFilter() {
   const market = document.getElementById("screener-market").value;
   const minPrice = parseFloat(document.getElementById("screener-price-min").value);
   const maxPrice = parseFloat(document.getElementById("screener-price-max").value);
+  const maxVolatility = parseFloat(document.getElementById("screener-volatility").value);
 
   return tradableQuotes().filter(r => {
     const pe = parseFloat(r.PERatio);
@@ -455,6 +473,13 @@ function screenerFilter() {
     }
     if (!isNaN(maxPrice)) {
       if (isNaN(price) || price > maxPrice) return false;
+    }
+    if (!isNaN(maxVolatility)) {
+      const volatility = intradayVolatility(r);
+      if (volatility === null || volatility > maxVolatility) return false;
+    }
+    if (document.getElementById("screener-exclude-etf").checked && r.Code.startsWith("00")) {
+      return false;
     }
     if (!isNaN(maxPE)) {
       if (isNaN(pe) || pe <= 0 || pe > maxPE) return false;
@@ -531,7 +556,7 @@ function search(keyword) {
 
 document.getElementById("search").addEventListener("input", e => search(e.target.value));
 
-["screener-pe", "screener-pb", "screener-yield", "screener-price-min", "screener-price-max", "screener-volume", "screener-years", "screener-market", "screener-profitable", "screener-search"].forEach(id => {
+["screener-pe", "screener-pb", "screener-yield", "screener-price-min", "screener-price-max", "screener-volume", "screener-volatility", "screener-years", "screener-market", "screener-profitable", "screener-exclude-etf", "screener-search"].forEach(id => {
   document.getElementById(id).addEventListener("input", () => {
     if (activeTab === "screener") renderActiveTab();
   });
