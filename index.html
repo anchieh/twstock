@@ -96,6 +96,28 @@
   }
   .star.active { color: #f1c40f; }
   .empty, .status { color: var(--muted); text-align: center; padding: 24px 0; }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { color: var(--fg); }
+  th .sort-arrow { color: var(--accent); margin-left: 2px; }
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 14px 0 4px;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .pagination button {
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--fg);
+    cursor: pointer;
+  }
+  .pagination button:disabled { opacity: 0.4; cursor: default; }
   .screener-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
   .screener-row label {
     display: flex;
@@ -202,14 +224,64 @@ function percentChange(r) {
   return (change / prevClose) * 100;
 }
 
-function renderTable(rows) {
+const PAGE_SIZE = 25;
+const COLUMNS = [
+  { label: "", sortable: false },
+  { key: "code", label: "代號", accessor: r => r.Code },
+  { key: "name", label: "名稱", accessor: r => r.Name },
+  { key: "open", label: "開盤", accessor: r => parseFloat(r.OpeningPrice) },
+  { key: "high", label: "最高", accessor: r => parseFloat(r.HighestPrice) },
+  { key: "low", label: "最低", accessor: r => parseFloat(r.LowestPrice) },
+  { key: "close", label: "收盤", accessor: r => parseFloat(r.ClosingPrice) },
+  { key: "change", label: "漲跌", accessor: r => percentChange(r) ?? parseFloat(r.Change) },
+  { key: "volume", label: "成交量", accessor: r => Number(r.TradeVolume) || 0 },
+  { key: "pe", label: "本益比", accessor: r => parseFloat(r.PERatio) },
+  { key: "pb", label: "淨值比", accessor: r => parseFloat(r.PBRatio) },
+  { key: "yield", label: "殖利率", accessor: r => parseFloat(r.DividendYield) },
+  { key: "eps", label: "累計EPS", accessor: r => parseFloat(r.EPS) },
+  { key: "years", label: "連續獲利年數", accessor: r => r.ConsecutiveProfitableYears || 0 },
+];
+
+let tableRows = [];
+let tableSort = null; // { key, dir: 1 | -1 }
+let tablePage = 1;
+
+function compareValues(a, b) {
+  const aMissing = a === undefined || a === null || (typeof a === "number" && isNaN(a));
+  const bMissing = b === undefined || b === null || (typeof b === "number" && isNaN(b));
+  if (aMissing && bMissing) return 0;
+  if (aMissing) return 1;
+  if (bMissing) return -1;
+  if (typeof a === "string") return a.localeCompare(b, "zh-Hant");
+  return a - b;
+}
+
+function setTableRows(rows) {
+  tableRows = rows;
+  tableSort = null;
+  tablePage = 1;
+  renderCurrentTable();
+}
+
+function sortedTableRows() {
+  if (!tableSort) return tableRows;
+  const col = COLUMNS.find(c => c.key === tableSort.key);
+  return [...tableRows].sort((a, b) => tableSort.dir * compareValues(col.accessor(a), col.accessor(b)));
+}
+
+function renderCurrentTable() {
   const result = document.getElementById("result");
-  if (rows.length === 0) {
+  if (tableRows.length === 0) {
     result.innerHTML = '<div class="empty">沒有符合的股票</div>';
     return;
   }
+  const rows = sortedTableRows();
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  tablePage = Math.min(Math.max(1, tablePage), totalPages);
+  const pageRows = rows.slice((tablePage - 1) * PAGE_SIZE, tablePage * PAGE_SIZE);
+
   const watchlist = loadWatchlist();
-  const body = rows.slice(0, 50).map(r => {
+  const body = pageRows.map(r => {
     const change = parseFloat(r.Change);
     const cls = change > 0 ? "up" : change < 0 ? "down" : "";
     const sign = change > 0 ? "+" : "";
@@ -233,13 +305,46 @@ function renderTable(rows) {
       <td>${r.ConsecutiveProfitableYears ? r.ConsecutiveProfitableYears + " 年" : "累積中"}</td>
     </tr>`;
   }).join("");
+
+  const headerCells = COLUMNS.map(col => {
+    if (!col.key) return "<th></th>";
+    const arrow = tableSort && tableSort.key === col.key ? `<span class="sort-arrow">${tableSort.dir > 0 ? "▲" : "▼"}</span>` : "";
+    return `<th class="sortable" data-key="${col.key}">${col.label}${arrow}</th>`;
+  }).join("");
+
   result.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th></th><th>代號</th><th>名稱</th><th>開盤</th><th>最高</th><th>最低</th><th>收盤</th><th>漲跌</th><th>成交量</th><th>本益比</th><th>淨值比</th><th>殖利率</th><th>累計EPS</th><th>連續獲利年數</th></tr></thead>
+    <thead><tr>${headerCells}</tr></thead>
     <tbody>${body}</tbody>
-  </table></div>`;
+  </table></div>
+  <div class="pagination">
+    <button id="page-prev" ${tablePage <= 1 ? "disabled" : ""}>上一頁</button>
+    <span>第 ${tablePage} / ${totalPages} 頁(共 ${rows.length} 筆)</span>
+    <button id="page-next" ${tablePage >= totalPages ? "disabled" : ""}>下一頁</button>
+  </div>`;
+
   result.querySelectorAll(".star").forEach(el => {
     el.addEventListener("click", () => toggleWatchlist(el.dataset.code, el.dataset.name));
   });
+  result.querySelectorAll("th.sortable").forEach(el => {
+    el.addEventListener("click", () => {
+      const key = el.dataset.key;
+      if (tableSort && tableSort.key === key) {
+        tableSort.dir *= -1;
+      } else {
+        tableSort = { key, dir: 1 };
+      }
+      tablePage = 1;
+      renderCurrentTable();
+    });
+  });
+  const prevBtn = document.getElementById("page-prev");
+  const nextBtn = document.getElementById("page-next");
+  if (prevBtn) prevBtn.addEventListener("click", () => { tablePage -= 1; renderCurrentTable(); });
+  if (nextBtn) nextBtn.addEventListener("click", () => { tablePage += 1; renderCurrentTable(); });
+}
+
+function renderTable(rows) {
+  setTableRows(rows);
 }
 
 function tradableQuotes() {
@@ -285,13 +390,11 @@ function renderActiveTab() {
       .map(r => ({ r, pct: percentChange(r) }))
       .filter(x => x.pct !== null)
       .sort((a, b) => activeTab === "gainers" ? b.pct - a.pct : a.pct - b.pct)
-      .slice(0, 20)
       .map(x => x.r);
     renderTable(ranked);
   } else if (activeTab === "volume") {
     const ranked = tradableQuotes()
-      .sort((a, b) => Number(b.TradeVolume) - Number(a.TradeVolume))
-      .slice(0, 20);
+      .sort((a, b) => Number(b.TradeVolume) - Number(a.TradeVolume));
     renderTable(ranked);
   } else if (activeTab === "watchlist") {
     const watchlist = loadWatchlist();
@@ -303,12 +406,11 @@ function renderActiveTab() {
     const filtered = kw
       ? matched.filter(r => r.Code.toLowerCase().includes(kw) || r.Name.toLowerCase().includes(kw))
       : matched;
-    const shown = filtered.slice(0, 200);
     const countEl = document.getElementById("screener-count");
     countEl.textContent = kw
-      ? `符合篩選條件共 ${matched.length} 檔,搜尋「${kw}」後剩 ${filtered.length} 檔${filtered.length > shown.length ? `,顯示前 ${shown.length} 筆` : ""}`
-      : `符合篩選條件共 ${matched.length} 檔${matched.length > shown.length ? `,顯示前 ${shown.length} 筆(本益比由低到高),可用上面的搜尋框直接找特定股票` : ""}`;
-    renderTable(shown);
+      ? `符合篩選條件共 ${matched.length} 檔,搜尋「${kw}」後剩 ${filtered.length} 檔`
+      : `符合篩選條件共 ${matched.length} 檔,預設按本益比由低到高排序,點表格標題可改排序方式`;
+    renderTable(filtered);
   }
 }
 
