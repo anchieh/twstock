@@ -74,7 +74,7 @@
   .table-wrap { overflow-x: auto; }
   table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 0.9rem; }
   th, td { text-align: right; padding: 8px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-  th:nth-child(1), td:nth-child(1), th:nth-child(2), td:nth-child(2) { text-align: left; }
+  th:nth-child(-n+4), td:nth-child(-n+4) { text-align: left; }
   th { color: var(--muted); font-weight: 600; }
   .up { color: var(--up); }
   .down { color: var(--down); }
@@ -199,6 +199,11 @@
             <option value="TPEx">只看上櫃</option>
           </select>
         </label>
+        <label>產業別
+          <select id="screener-industry">
+            <option value="">全部</option>
+          </select>
+        </label>
       </div>
       <label class="screener-checkbox"><input type="checkbox" id="screener-profitable" checked /> <span id="screener-profitable-label">只看累計有獲利的公司(EPS &gt; 0)</span></label>
       <label class="screener-checkbox"><input type="checkbox" id="screener-exclude-etf" /> 排除 ETF/受益憑證(代號 00 開頭,含槓桿、反向商品)</label>
@@ -226,9 +231,9 @@ const SCREENER_PRESETS = [
   {
     name: "低估價值股(預設)",
     fields: () => ({
-      "screener-pe": marketAverages.medianPERatio ?? "",
-      "screener-pb": 1,
-      "screener-yield": marketAverages.medianDividendYield ?? "",
+      "screener-pe": marketAverages.p25PERatio ?? "",
+      "screener-pb": 0.8,
+      "screener-yield": marketAverages.p75DividendYield ?? "",
       "screener-price-min": "",
       "screener-price-max": "",
       "screener-volume": "",
@@ -237,6 +242,7 @@ const SCREENER_PRESETS = [
       "screener-years": "",
       "screener-bias-min": "",
       "screener-market": "",
+      "screener-industry": "",
     }),
     profitable: true,
     excludeEtf: false,
@@ -255,6 +261,7 @@ const SCREENER_PRESETS = [
       "screener-years": "",
       "screener-bias-min": "",
       "screener-market": "",
+      "screener-industry": "",
     },
     excludeEtf: true,
     profitable: false,
@@ -336,6 +343,7 @@ const COLUMNS = [
   { label: "", sortable: false },
   { key: "code", label: "代號", accessor: r => r.Code },
   { key: "name", label: "名稱", accessor: r => r.Name },
+  { key: "industry", label: "產業別", accessor: r => r.Industry || "" },
   { key: "open", label: "開盤", accessor: r => parseFloat(r.OpeningPrice) },
   { key: "high", label: "最高", accessor: r => parseFloat(r.HighestPrice) },
   { key: "low", label: "最低", accessor: r => parseFloat(r.LowestPrice) },
@@ -401,6 +409,7 @@ function renderCurrentTable() {
       <td class="star ${starred ? "active" : ""}" data-code="${r.Code}" data-name="${r.Name}">${starred ? "★" : "☆"}</td>
       <td>${r.Code}</td>
       <td>${r.Name}<span class="market">${r.Market === "TPEx" ? "上櫃" : "上市"}</span></td>
+      <td>${r.Industry || "-"}</td>
       <td>${r.OpeningPrice}</td>
       <td>${r.HighestPrice}</td>
       <td>${r.LowestPrice}</td>
@@ -474,6 +483,7 @@ function screenerFilter() {
   const minVolatility = parseFloat(document.getElementById("screener-volatility-min").value);
   const maxVolatility = parseFloat(document.getElementById("screener-volatility-max").value);
   const minBias = parseFloat(document.getElementById("screener-bias-min").value);
+  const industry = document.getElementById("screener-industry").value;
 
   return tradableQuotes().filter(r => {
     const pe = parseFloat(r.PERatio);
@@ -514,6 +524,7 @@ function screenerFilter() {
       if ((r.ConsecutiveProfitableYears || 0) < minYears) return false;
     }
     if (market && r.Market !== market) return false;
+    if (industry && r.Industry !== industry) return false;
     if (document.getElementById("screener-profitable").checked) {
       const eps = parseFloat(r.EPS);
       if (isNaN(eps) || eps <= 0) return false;
@@ -573,7 +584,7 @@ function search(keyword) {
 
 document.getElementById("search").addEventListener("input", e => search(e.target.value));
 
-["screener-pe", "screener-pb", "screener-yield", "screener-price-min", "screener-price-max", "screener-volume", "screener-volatility-min", "screener-volatility-max", "screener-years", "screener-bias-min", "screener-market", "screener-profitable", "screener-exclude-etf", "screener-search"].forEach(id => {
+["screener-pe", "screener-pb", "screener-yield", "screener-price-min", "screener-price-max", "screener-volume", "screener-volatility-min", "screener-volatility-max", "screener-years", "screener-bias-min", "screener-market", "screener-industry", "screener-profitable", "screener-exclude-etf", "screener-search"].forEach(id => {
   document.getElementById(id).addEventListener("input", () => {
     if (activeTab === "screener") renderActiveTab();
   });
@@ -614,16 +625,22 @@ fetch(DATA_URL)
 
     marketAverages = data.marketAverages || {};
     const avg = marketAverages;
-    document.getElementById("screener-pe").value = avg.medianPERatio ?? "";
-    document.getElementById("screener-pb").value = 1;
-    document.getElementById("screener-yield").value = avg.medianDividendYield ?? "";
+    document.getElementById("screener-pe").value = avg.p25PERatio ?? "";
+    document.getElementById("screener-pb").value = 0.8;
+    document.getElementById("screener-yield").value = avg.p75DividendYield ?? "";
+
+    const industries = [...new Set(quotes.map(r => r.Industry).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-Hant"));
+    const industrySelect = document.getElementById("screener-industry");
+    industrySelect.innerHTML = '<option value="">全部</option>' +
+      industries.map(name => `<option value="${name}">${name}</option>`).join("");
+
     renderScreenerPresets();
     const epsSample = quotes.find(r => r.EPSYear && r.EPSQuarter);
     const epsPeriod = epsSample ? `${parseInt(epsSample.EPSYear, 10) + 1911}年第${epsSample.EPSQuarter}季累計` : "最新一季累計";
     document.getElementById("screener-profitable-label").textContent =
       `只看${epsPeriod}有獲利的公司(EPS > 0,注意:年度還沒結束,這不是全年獲利保證)`;
     document.getElementById("screener-note").textContent =
-      `預設門檻:本益比 ≤ 全市場中位數(${avg.medianPERatio ?? "-"}),股價淨值比 ≤ 1(代表股價低於帳面淨值),殖利率 ≥ 全市場中位數(${avg.medianDividendYield ?? "-"}%)。可自行調整,留空代表不限制這項。EPS 為公開資訊觀測站揭露的${epsPeriod}每股盈餘,部分剛掛牌或資料延遲的公司可能還沒有這季的數字。「連續獲利年數」從這次開始每季自動累積官方年度財報數字,目前還沒有完整年度資料,會顯示「累積中」,要等到有完整年度資料後才會顯示實際年數。「6日乖離率」是從今天開始每天累積收盤價算的,要連續累積滿 6 個交易日才會有數字,之前都會顯示「累積中」。`;
+      `預設門檻改用比較嚴格的四分位數,不是中位數:本益比 ≤ 全市場後 25%(${avg.p25PERatio ?? "-"}),股價淨值比 ≤ 0.8,殖利率 ≥ 全市場前 25%(${avg.p75DividendYield ?? "-"}%)。不同產業的合理本益比落差很大(例如金融股跟半導體股不能用同一把尺),如果篩出來的公司產業太雜,建議搭配上面的「產業別」欄位鎖定單一產業再比較。可自行調整,留空代表不限制這項。EPS 為公開資訊觀測站揭露的${epsPeriod}每股盈餘,部分剛掛牌或資料延遲的公司可能還沒有這季的數字。「連續獲利年數」從這次開始每季自動累積官方年度財報數字,目前還沒有完整年度資料,會顯示「累積中」,要等到有完整年度資料後才會顯示實際年數。「6日乖離率」是從今天開始每天累積收盤價算的,要連續累積滿 6 個交易日才會有數字,之前都會顯示「累積中」。`;
 
     renderActiveTab();
   })

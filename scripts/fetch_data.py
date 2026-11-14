@@ -157,6 +157,7 @@ def fetch_eps() -> dict[str, dict]:
             "NetIncome": r["稅後淨利"],
             "EPSYear": r["年度"],
             "EPSQuarter": r["季別"],
+            "Industry": r["產業別"],
         }
 
     resp = SESSION.get(TPEX_EPS_URL, timeout=10)
@@ -167,6 +168,7 @@ def fetch_eps() -> dict[str, dict]:
             "NetIncome": r["稅後淨利"],
             "EPSYear": r["Year"],
             "EPSQuarter": r["季別"],
+            "Industry": r["產業別"],
         }
 
     return eps
@@ -302,17 +304,27 @@ def market_averages(quotes: list[dict]) -> dict:
         return values
 
     def median(values: list[float]) -> float | None:
+        return percentile(values, 50)
+
+    def percentile(values: list[float], pct: float) -> float | None:
         if not values:
             return None
         values = sorted(values)
-        mid = len(values) // 2
-        if len(values) % 2:
-            return round(values[mid], 2)
-        return round((values[mid - 1] + values[mid]) / 2, 2)
+        idx = (len(values) - 1) * pct / 100
+        lower, upper = int(idx), min(int(idx) + 1, len(values) - 1)
+        if lower == upper:
+            return round(values[lower], 2)
+        weight = idx - lower
+        return round(values[lower] * (1 - weight) + values[upper] * weight, 2)
 
+    pe_values = valid_values("PERatio")
+    yield_values = valid_values("DividendYield")
     return {
-        "medianPERatio": median(valid_values("PERatio")),
-        "medianDividendYield": median(valid_values("DividendYield")),
+        "medianPERatio": median(pe_values),
+        "medianDividendYield": median(yield_values),
+        # 「低估價值股」預設門檻改用更嚴格的四分位數,而不是中位數,避免結果太多檔
+        "p25PERatio": percentile(pe_values, 25),
+        "p75DividendYield": percentile(yield_values, 75),
     }
 
 
