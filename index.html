@@ -48,6 +48,15 @@
   th { color: var(--muted); font-weight: 600; }
   .up { color: var(--up); }
   .down { color: var(--down); }
+  .market {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    font-size: 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--muted);
+  }
   .empty, .status { color: var(--muted); text-align: center; padding: 24px 0; }
 </style>
 </head>
@@ -80,7 +89,7 @@ function renderTable(rows) {
     const sign = change > 0 ? "+" : "";
     return `<tr>
       <td>${r.Code}</td>
-      <td>${r.Name}</td>
+      <td>${r.Name}<span class="market">${r.Market === "TPEx" ? "上櫃" : "上市"}</span></td>
       <td>${r.OpeningPrice}</td>
       <td>${r.HighestPrice}</td>
       <td>${r.LowestPrice}</td>
@@ -114,7 +123,7 @@ fetch(DATA_URL)
     quotes = data.quotes;
     const latestDate = quotes[0] ? rocToIso(quotes[0].Date) : "-";
     document.getElementById("updated").textContent =
-      `資料日期: ${latestDate}(來源: TWSE 官方 OpenAPI,更新於 ${data.updated_at}）`;
+      `資料日期: ${latestDate}(來源: TWSE / TPEx 官方 OpenAPI,更新於 ${data.updated_at}）`;
     document.getElementById("result").innerHTML = '<div class="status">輸入股票代號或名稱開始查詢</div>';
   })
   .catch(() => {
