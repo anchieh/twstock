@@ -143,7 +143,7 @@
         <label>股價淨值比上限 <input type="number" id="screener-pb" step="0.1" /></label>
         <label>殖利率下限(%) <input type="number" id="screener-yield" step="0.1" /></label>
       </div>
-      <label class="screener-checkbox"><input type="checkbox" id="screener-profitable" checked /> 只看今年累計有獲利的公司(EPS &gt; 0)</label>
+      <label class="screener-checkbox"><input type="checkbox" id="screener-profitable" checked /> <span id="screener-profitable-label">只看累計有獲利的公司(EPS &gt; 0)</span></label>
       <div class="screener-note" id="screener-note"></div>
     </div>
 
@@ -358,6 +358,8 @@ fetch(DATA_URL)
     document.getElementById("screener-yield").value = avg.medianDividendYield ?? "";
     const epsSample = quotes.find(r => r.EPSYear && r.EPSQuarter);
     const epsPeriod = epsSample ? `${parseInt(epsSample.EPSYear, 10) + 1911}年第${epsSample.EPSQuarter}季累計` : "最新一季累計";
+    document.getElementById("screener-profitable-label").textContent =
+      `只看${epsPeriod}有獲利的公司(EPS > 0,注意:年度還沒結束,這不是全年獲利保證)`;
     document.getElementById("screener-note").textContent =
       `預設門檻:本益比 ≤ 全市場中位數(${avg.medianPERatio ?? "-"}),股價淨值比 ≤ 1(代表股價低於帳面淨值),殖利率 ≥ 全市場中位數(${avg.medianDividendYield ?? "-"}%)。可自行調整,留空代表不限制這項。EPS 為公開資訊觀測站揭露的${epsPeriod}每股盈餘,部分剛掛牌或資料延遲的公司可能還沒有這季的數字。「連續獲利年數」從這次開始每季自動累積官方年度財報數字,目前還沒有完整年度資料,會顯示「累積中」,要等到有完整年度資料後才會顯示實際年數。`;
 
