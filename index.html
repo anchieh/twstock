@@ -186,8 +186,11 @@
         <label>成交量下限(股) <input type="number" id="screener-volume" step="1000" placeholder="留空不限制" /></label>
       </div>
       <div class="screener-row">
+        <label>日內振幅下限(%) <span class="hint">(要夠大才有操作空間)</span> <input type="number" id="screener-volatility-min" step="0.5" min="0" placeholder="留空不限制" /></label>
+        <label>日內振幅上限(%) <span class="hint">(避免過度暴衝的極端股)</span> <input type="number" id="screener-volatility-max" step="0.5" min="0" placeholder="留空不限制" /></label>
         <label>連續獲利年數下限 <input type="number" id="screener-years" step="1" min="0" placeholder="留空不限制" /></label>
-        <label>日內振幅上限(%) <span class="hint">(低為佳,越低代表當天越不劇烈)</span> <input type="number" id="screener-volatility" step="0.5" min="0" placeholder="留空不限制" /></label>
+      </div>
+      <div class="screener-row">
         <label>市場別
           <select id="screener-market">
             <option value="">全部</option>
@@ -228,7 +231,8 @@ const SCREENER_PRESETS = [
       "screener-price-min": "",
       "screener-price-max": "",
       "screener-volume": "",
-      "screener-volatility": "",
+      "screener-volatility-min": "",
+      "screener-volatility-max": "",
       "screener-years": "",
       "screener-market": "",
     }),
@@ -236,7 +240,7 @@ const SCREENER_PRESETS = [
     excludeEtf: false,
   },
   {
-    name: "短線小資(2萬本金,保本優先)",
+    name: "短線小資(2萬本金,要有波動空間)",
     fields: {
       "screener-pe": "",
       "screener-pb": "",
@@ -244,7 +248,8 @@ const SCREENER_PRESETS = [
       "screener-price-min": 10,
       "screener-price-max": 19,
       "screener-volume": 10000000,
-      "screener-volatility": 4,
+      "screener-volatility-min": 2,
+      "screener-volatility-max": 8,
       "screener-years": "",
       "screener-market": "",
     },
@@ -461,7 +466,8 @@ function screenerFilter() {
   const market = document.getElementById("screener-market").value;
   const minPrice = parseFloat(document.getElementById("screener-price-min").value);
   const maxPrice = parseFloat(document.getElementById("screener-price-max").value);
-  const maxVolatility = parseFloat(document.getElementById("screener-volatility").value);
+  const minVolatility = parseFloat(document.getElementById("screener-volatility-min").value);
+  const maxVolatility = parseFloat(document.getElementById("screener-volatility-max").value);
 
   return tradableQuotes().filter(r => {
     const pe = parseFloat(r.PERatio);
@@ -474,9 +480,11 @@ function screenerFilter() {
     if (!isNaN(maxPrice)) {
       if (isNaN(price) || price > maxPrice) return false;
     }
-    if (!isNaN(maxVolatility)) {
+    if (!isNaN(minVolatility) || !isNaN(maxVolatility)) {
       const volatility = intradayVolatility(r);
-      if (volatility === null || volatility > maxVolatility) return false;
+      if (volatility === null) return false;
+      if (!isNaN(minVolatility) && volatility < minVolatility) return false;
+      if (!isNaN(maxVolatility) && volatility > maxVolatility) return false;
     }
     if (document.getElementById("screener-exclude-etf").checked && r.Code.startsWith("00")) {
       return false;
@@ -556,7 +564,7 @@ function search(keyword) {
 
 document.getElementById("search").addEventListener("input", e => search(e.target.value));
 
-["screener-pe", "screener-pb", "screener-yield", "screener-price-min", "screener-price-max", "screener-volume", "screener-volatility", "screener-years", "screener-market", "screener-profitable", "screener-exclude-etf", "screener-search"].forEach(id => {
+["screener-pe", "screener-pb", "screener-yield", "screener-price-min", "screener-price-max", "screener-volume", "screener-volatility-min", "screener-volatility-max", "screener-years", "screener-market", "screener-profitable", "screener-exclude-etf", "screener-search"].forEach(id => {
   document.getElementById(id).addEventListener("input", () => {
     if (activeTab === "screener") renderActiveTab();
   });
