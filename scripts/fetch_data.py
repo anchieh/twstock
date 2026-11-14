@@ -13,6 +13,8 @@ TWSE_URL = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
 TPEX_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"
 TWSE_INDEX_URL = "https://openapi.twse.com.tw/v1/exchangeReport/MI_INDEX"
 TPEX_INDEX_URL = "https://www.tpex.org.tw/openapi/v1/tpex_index"
+TWSE_VALUATION_URL = "https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL"
+TPEX_VALUATION_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis"
 OUTPUT_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "stock_day_all.json"
 
 
@@ -90,9 +92,75 @@ def fetch_indices() -> list[dict]:
     ]
 
 
+def fetch_valuations() -> dict[str, dict]:
+    """抓本益比/殖利率/股價淨值比,用股票代號對應,合併到收盤行情裡。"""
+    valuations: dict[str, dict] = {}
+
+    resp = requests.get(TWSE_VALUATION_URL, timeout=10)
+    resp.raise_for_status()
+    for r in resp.json():
+        valuations[r["Code"]] = {
+            "PERatio": r["PEratio"],
+            "DividendYield": r["DividendYield"],
+            "PBRatio": r["PBratio"],
+        }
+
+    resp = requests.get(TPEX_VALUATION_URL, timeout=10)
+    resp.raise_for_status()
+    for r in resp.json():
+        valuations[r["SecuritiesCompanyCode"]] = {
+            "PERatio": r["PriceEarningRatio"],
+            "DividendYield": r["YieldRatio"],
+            "PBRatio": r["PriceBookRatio"],
+        }
+
+    return valuations
+
+
+def merge_valuations(quotes: list[dict], valuations: dict[str, dict]) -> None:
+    for q in quotes:
+        v = valuations.get(q["Code"])
+        if v:
+            q.update(v)
+
+
+def market_averages(quotes: list[dict]) -> dict:
+    """算全市場本益比與殖利率的平均值,給前端當篩選預設門檻。"""
+
+    def valid_values(field: str) -> list[float]:
+        values = []
+        for q in quotes:
+            raw = q.get(field)
+            if not raw:
+                continue
+            try:
+                value = float(raw)
+            except ValueError:
+                continue
+            if value > 0:
+                values.append(value)
+        return values
+
+    def median(values: list[float]) -> float | None:
+        if not values:
+            return None
+        values = sorted(values)
+        mid = len(values) // 2
+        if len(values) % 2:
+            return round(values[mid], 2)
+        return round((values[mid - 1] + values[mid]) / 2, 2)
+
+    return {
+        "medianPERatio": median(valid_values("PERatio")),
+        "medianDividendYield": median(valid_values("DividendYield")),
+    }
+
+
 def main() -> None:
     quotes = fetch_twse() + fetch_tpex()
     indices = fetch_indices()
+    merge_valuations(quotes, fetch_valuations())
+    averages = market_averages(quotes)
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT_PATH.write_text(
@@ -100,6 +168,7 @@ def main() -> None:
             {
                 "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "indices": indices,
+                "marketAverages": averages,
                 "quotes": quotes,
             },
             ensure_ascii=False,
