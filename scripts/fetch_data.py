@@ -8,6 +8,14 @@ import json
 import pathlib
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
+
+SESSION = requests.Session()
+SESSION.mount(
+    "https://",
+    HTTPAdapter(max_retries=Retry(total=4, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])),
+)
 
 TWSE_URL = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
 TPEX_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"
@@ -18,10 +26,11 @@ TPEX_VALUATION_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_
 TWSE_EPS_URL = "https://openapi.twse.com.tw/v1/opendata/t187ap14_L"
 TPEX_EPS_URL = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap14_O"
 OUTPUT_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "stock_day_all.json"
+EPS_HISTORY_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "eps_history.json"
 
 
 def fetch_twse() -> list[dict]:
-    resp = requests.get(TWSE_URL, timeout=10)
+    resp = SESSION.get(TWSE_URL, timeout=10)
     resp.raise_for_status()
     quotes = resp.json()
     for q in quotes:
@@ -34,7 +43,7 @@ def fetch_tpex() -> list[dict]:
 
     回傳資料裡代號 6 碼的是權證,不是股票,過濾掉。
     """
-    resp = requests.get(TPEX_URL, timeout=10)
+    resp = SESSION.get(TPEX_URL, timeout=10)
     resp.raise_for_status()
     raw = resp.json()
 
@@ -64,12 +73,12 @@ def fetch_tpex() -> list[dict]:
 
 def fetch_indices() -> list[dict]:
     """抓大盤指數:加權指數(TWSE)跟櫃買指數(TPEx)。"""
-    resp = requests.get(TWSE_INDEX_URL, timeout=10)
+    resp = SESSION.get(TWSE_INDEX_URL, timeout=10)
     resp.raise_for_status()
     taiex = next(r for r in resp.json() if r["指數"] == "發行量加權股價指數")
     taiex_sign = "" if taiex["漲跌"] == "+" else "-"
 
-    resp = requests.get(TPEX_INDEX_URL, timeout=10)
+    resp = SESSION.get(TPEX_INDEX_URL, timeout=10)
     resp.raise_for_status()
     tpex_latest = resp.json()[-1]
     tpex_close = float(tpex_latest["Close"])
@@ -98,7 +107,7 @@ def fetch_valuations() -> dict[str, dict]:
     """抓本益比/殖利率/股價淨值比,用股票代號對應,合併到收盤行情裡。"""
     valuations: dict[str, dict] = {}
 
-    resp = requests.get(TWSE_VALUATION_URL, timeout=10)
+    resp = SESSION.get(TWSE_VALUATION_URL, timeout=10)
     resp.raise_for_status()
     for r in resp.json():
         valuations[r["Code"]] = {
@@ -107,7 +116,7 @@ def fetch_valuations() -> dict[str, dict]:
             "PBRatio": r["PBratio"],
         }
 
-    resp = requests.get(TPEX_VALUATION_URL, timeout=10)
+    resp = SESSION.get(TPEX_VALUATION_URL, timeout=10)
     resp.raise_for_status()
     for r in resp.json():
         valuations[r["SecuritiesCompanyCode"]] = {
@@ -133,7 +142,7 @@ def fetch_eps() -> dict[str, dict]:
     """
     eps: dict[str, dict] = {}
 
-    resp = requests.get(TWSE_EPS_URL, timeout=10)
+    resp = SESSION.get(TWSE_EPS_URL, timeout=10)
     resp.raise_for_status()
     for r in resp.json():
         eps[r["公司代號"]] = {
@@ -143,7 +152,7 @@ def fetch_eps() -> dict[str, dict]:
             "EPSQuarter": r["季別"],
         }
 
-    resp = requests.get(TPEX_EPS_URL, timeout=10)
+    resp = SESSION.get(TPEX_EPS_URL, timeout=10)
     resp.raise_for_status()
     for r in resp.json():
         eps[r["SecuritiesCompanyCode"]] = {
@@ -161,6 +170,63 @@ def merge_eps(quotes: list[dict], eps: dict[str, dict]) -> None:
         e = eps.get(q["Code"])
         if e:
             q.update(e)
+
+
+def load_eps_history() -> dict[str, list[dict]]:
+    if EPS_HISTORY_PATH.exists():
+        return json.loads(EPS_HISTORY_PATH.read_text(encoding="utf-8"))
+    return {}
+
+
+def save_eps_history(history: dict[str, list[dict]]) -> None:
+    EPS_HISTORY_PATH.write_text(
+        json.dumps(history, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+
+def update_eps_history(history: dict[str, list[dict]], eps: dict[str, dict]) -> None:
+    """把每次抓到的季 EPS 存進歷史記錄,同一季重複抓不會重複累積,只會更新數字(財報有時會追溯更正)。
+
+    這個端點官方只給「最新一季」的快照,沒有歷史可以一次補,所以連續獲利年數
+    只能靠長期、每季持續執行這支腳本慢慢累積,現在剛開始接,資料會隨時間變多。
+    """
+    for code, e in eps.items():
+        year, quarter = e.get("EPSYear"), e.get("EPSQuarter")
+        if not year or not quarter:
+            continue
+        records = history.setdefault(code, [])
+        record = {"year": year, "quarter": quarter, "eps": e["EPS"], "netIncome": e["NetIncome"]}
+        existing = next((r for r in records if r["year"] == year and r["quarter"] == quarter), None)
+        if existing:
+            existing.update(record)
+        else:
+            records.append(record)
+        records.sort(key=lambda r: (r["year"], r["quarter"]))
+
+
+def consecutive_profitable_years(records: list[dict]) -> int:
+    """從最新完整年度(第4季累計淨利)往回算,連續幾年都賺錢。
+
+    年度之間必須逐年相接,中間缺一年就視為資料不足,停止往回算。
+    """
+    annual = {r["year"]: r for r in records if r["quarter"] == "4"}
+    years_desc = sorted(annual.keys(), key=int, reverse=True)
+
+    count = 0
+    expected_year = None
+    for year in years_desc:
+        if expected_year is not None and int(year) != expected_year:
+            break
+        try:
+            net_income = float(annual[year]["netIncome"])
+        except (TypeError, ValueError):
+            break
+        if net_income <= 0:
+            break
+        count += 1
+        expected_year = int(year) - 1
+    return count
 
 
 def market_averages(quotes: list[dict]) -> dict:
@@ -199,7 +265,21 @@ def main() -> None:
     quotes = fetch_twse() + fetch_tpex()
     indices = fetch_indices()
     merge_valuations(quotes, fetch_valuations())
-    merge_eps(quotes, fetch_eps())
+
+    eps = fetch_eps()
+    merge_eps(quotes, eps)
+
+    eps_history = load_eps_history()
+    update_eps_history(eps_history, eps)
+    save_eps_history(eps_history)
+    for q in quotes:
+        records = eps_history.get(q["Code"], [])
+        if records:
+            q["EPSQuartersTracked"] = len(records)
+            years = consecutive_profitable_years(records)
+            if years:
+                q["ConsecutiveProfitableYears"] = years
+
     averages = market_averages(quotes)
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)

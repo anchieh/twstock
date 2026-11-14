@@ -227,10 +227,11 @@ function renderTable(rows) {
       <td>${r.PBRatio || "-"}</td>
       <td>${r.DividendYield ? r.DividendYield + "%" : "-"}</td>
       <td class="${r.EPS !== undefined && parseFloat(r.EPS) < 0 ? "down" : ""}">${r.EPS !== undefined ? r.EPS : "-"}</td>
+      <td>${r.ConsecutiveProfitableYears ? r.ConsecutiveProfitableYears + " 年" : "累積中"}</td>
     </tr>`;
   }).join("");
   result.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th></th><th>代號</th><th>名稱</th><th>開盤</th><th>最高</th><th>最低</th><th>收盤</th><th>漲跌</th><th>成交量</th><th>本益比</th><th>淨值比</th><th>殖利率</th><th>累計EPS</th></tr></thead>
+    <thead><tr><th></th><th>代號</th><th>名稱</th><th>開盤</th><th>最高</th><th>最低</th><th>收盤</th><th>漲跌</th><th>成交量</th><th>本益比</th><th>淨值比</th><th>殖利率</th><th>累計EPS</th><th>連續獲利年數</th></tr></thead>
     <tbody>${body}</tbody>
   </table></div>`;
   result.querySelectorAll(".star").forEach(el => {
@@ -358,7 +359,7 @@ fetch(DATA_URL)
     const epsSample = quotes.find(r => r.EPSYear && r.EPSQuarter);
     const epsPeriod = epsSample ? `${parseInt(epsSample.EPSYear, 10) + 1911}年第${epsSample.EPSQuarter}季累計` : "最新一季累計";
     document.getElementById("screener-note").textContent =
-      `預設門檻:本益比 ≤ 全市場中位數(${avg.medianPERatio ?? "-"}),股價淨值比 ≤ 1(代表股價低於帳面淨值),殖利率 ≥ 全市場中位數(${avg.medianDividendYield ?? "-"}%)。可自行調整,留空代表不限制這項。EPS 為公開資訊觀測站揭露的${epsPeriod}每股盈餘,部分剛掛牌或資料延遲的公司可能還沒有這季的數字。`;
+      `預設門檻:本益比 ≤ 全市場中位數(${avg.medianPERatio ?? "-"}),股價淨值比 ≤ 1(代表股價低於帳面淨值),殖利率 ≥ 全市場中位數(${avg.medianDividendYield ?? "-"}%)。可自行調整,留空代表不限制這項。EPS 為公開資訊觀測站揭露的${epsPeriod}每股盈餘,部分剛掛牌或資料延遲的公司可能還沒有這季的數字。「連續獲利年數」從這次開始每季自動累積官方年度財報數字,目前還沒有完整年度資料,會顯示「累積中」,要等到有完整年度資料後才會顯示實際年數。`;
 
     renderActiveTab();
   })
