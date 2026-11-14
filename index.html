@@ -211,6 +211,7 @@
       </div>
       <label class="screener-checkbox"><input type="checkbox" id="screener-profitable" checked /> <span id="screener-profitable-label">只看累計有獲利的公司(EPS &gt; 0)</span></label>
       <label class="screener-checkbox"><input type="checkbox" id="screener-exclude-etf" /> 排除 ETF/受益憑證(代號 00 開頭,含槓桿、反向商品)</label>
+      <label class="screener-checkbox"><input type="checkbox" id="screener-exclude-risky" /> 排除 EPS 或產業別資料缺失的公司(常代表本業有問題,例如虧損未列入統計)</label>
       <div class="screener-note" id="screener-note"></div>
       <input type="text" id="screener-search" placeholder="在篩選結果中搜尋代號或名稱(選填),例如 2303 或 聯電" autocomplete="off" />
       <div class="screener-count" id="screener-count"></div>
@@ -251,6 +252,7 @@ const SCREENER_PRESETS = [
     }),
     profitable: true,
     excludeEtf: false,
+    excludeRisky: false,
   },
   {
     name: "短線小資(2萬本金,要有波動空間)",
@@ -270,6 +272,7 @@ const SCREENER_PRESETS = [
       "screener-industry": "",
     },
     excludeEtf: true,
+    excludeRisky: true,
     profitable: false,
   },
 ];
@@ -281,6 +284,7 @@ function applyScreenerPreset(preset) {
   });
   document.getElementById("screener-profitable").checked = preset.profitable;
   document.getElementById("screener-exclude-etf").checked = !!preset.excludeEtf;
+  document.getElementById("screener-exclude-risky").checked = !!preset.excludeRisky;
   renderActiveTab();
 }
 
@@ -511,6 +515,9 @@ function screenerFilter() {
     if (document.getElementById("screener-exclude-etf").checked && r.Code.startsWith("00")) {
       return false;
     }
+    if (document.getElementById("screener-exclude-risky").checked && (r.EPS === undefined || !r.Industry)) {
+      return false;
+    }
     if (!isNaN(minBias)) {
       if (r.Bias6 === undefined || Math.abs(r.Bias6) < minBias) return false;
     }
@@ -590,7 +597,7 @@ function search(keyword) {
 
 document.getElementById("search").addEventListener("input", e => search(e.target.value));
 
-["screener-pe", "screener-pb", "screener-yield", "screener-price-min", "screener-price-max", "screener-volume", "screener-volatility-min", "screener-volatility-max", "screener-years", "screener-bias-min", "screener-market", "screener-industry", "screener-profitable", "screener-exclude-etf", "screener-search"].forEach(id => {
+["screener-pe", "screener-pb", "screener-yield", "screener-price-min", "screener-price-max", "screener-volume", "screener-volatility-min", "screener-volatility-max", "screener-years", "screener-bias-min", "screener-market", "screener-industry", "screener-profitable", "screener-exclude-etf", "screener-exclude-risky", "screener-search"].forEach(id => {
   document.getElementById(id).addEventListener("input", () => {
     if (activeTab === "screener") renderActiveTab();
   });
