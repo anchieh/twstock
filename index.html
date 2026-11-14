@@ -128,7 +128,8 @@
     flex: 1;
     min-width: 120px;
   }
-  .screener-row input[type="number"] {
+  .screener-row input[type="number"],
+  .screener-row select {
     padding: 8px 10px;
     font-size: 0.95rem;
     border: 1px solid var(--border);
@@ -166,6 +167,17 @@
         <label>本益比上限 <span class="hint">(低為佳)</span> <input type="number" id="screener-pe" step="0.1" /></label>
         <label>股價淨值比上限 <span class="hint">(低為佳)</span> <input type="number" id="screener-pb" step="0.1" /></label>
         <label>殖利率下限(%) <span class="hint">(高為佳)</span> <input type="number" id="screener-yield" step="0.1" /></label>
+      </div>
+      <div class="screener-row">
+        <label>成交量下限(股) <input type="number" id="screener-volume" step="1000" placeholder="留空不限制" /></label>
+        <label>連續獲利年數下限 <input type="number" id="screener-years" step="1" min="0" placeholder="留空不限制" /></label>
+        <label>市場別
+          <select id="screener-market">
+            <option value="">全部</option>
+            <option value="TWSE">只看上市</option>
+            <option value="TPEx">只看上櫃</option>
+          </select>
+        </label>
       </div>
       <label class="screener-checkbox"><input type="checkbox" id="screener-profitable" checked /> <span id="screener-profitable-label">只看累計有獲利的公司(EPS &gt; 0)</span></label>
       <div class="screener-note" id="screener-note"></div>
@@ -356,6 +368,9 @@ function screenerFilter() {
   const maxPE = parseFloat(document.getElementById("screener-pe").value);
   const maxPB = parseFloat(document.getElementById("screener-pb").value);
   const minYield = parseFloat(document.getElementById("screener-yield").value);
+  const minVolume = parseFloat(document.getElementById("screener-volume").value);
+  const minYears = parseFloat(document.getElementById("screener-years").value);
+  const market = document.getElementById("screener-market").value;
 
   return tradableQuotes().filter(r => {
     const pe = parseFloat(r.PERatio);
@@ -370,6 +385,13 @@ function screenerFilter() {
     if (!isNaN(minYield)) {
       if (isNaN(yieldPct) || yieldPct < minYield) return false;
     }
+    if (!isNaN(minVolume)) {
+      if (Number(r.TradeVolume) < minVolume) return false;
+    }
+    if (!isNaN(minYears)) {
+      if ((r.ConsecutiveProfitableYears || 0) < minYears) return false;
+    }
+    if (market && r.Market !== market) return false;
     if (document.getElementById("screener-profitable").checked) {
       const eps = parseFloat(r.EPS);
       if (isNaN(eps) || eps <= 0) return false;
@@ -429,7 +451,7 @@ function search(keyword) {
 
 document.getElementById("search").addEventListener("input", e => search(e.target.value));
 
-["screener-pe", "screener-pb", "screener-yield", "screener-profitable", "screener-search"].forEach(id => {
+["screener-pe", "screener-pb", "screener-yield", "screener-volume", "screener-years", "screener-market", "screener-profitable", "screener-search"].forEach(id => {
   document.getElementById(id).addEventListener("input", () => {
     if (activeTab === "screener") renderActiveTab();
   });
