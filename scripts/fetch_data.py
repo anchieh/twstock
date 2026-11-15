@@ -29,6 +29,8 @@ OUTPUT_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "stock_d
 EPS_HISTORY_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "eps_history.json"
 PRICE_HISTORY_PATH = pathlib.Path(__file__).resolve().parent.parent / "data" / "price_history.json"
 PRICE_HISTORY_MAX_DAYS = 30
+HISTORY_DIR = pathlib.Path(__file__).resolve().parent.parent / "data" / "history"
+HISTORY_MAX_DAYS = 760  # 給網站的走勢圖用,留約兩年多一點,比篩選器用的 price_history.json 長很多
 
 
 def roc_to_iso(roc_date: str) -> str:
@@ -274,6 +276,32 @@ def update_price_history(history: dict[str, list[list]], quotes: list[dict]) -> 
         history[q["Code"]] = records[-PRICE_HISTORY_MAX_DAYS:]
 
 
+def update_history_files(quotes: list[dict]) -> None:
+    """把今天的收盤價累積進網站走勢圖用的逐股歷史檔(data/history/<代號>.json)。
+
+    這份資料是網站自己長期維護的(一開始用兩年歷史回補過),走勢圖不再即時外抓
+    TWSE/FinMind,全部用這份自己的資料畫,不依賴第三方服務的可用性跟額度限制。
+    """
+    HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    for q in quotes:
+        close_raw = q.get("ClosingPrice")
+        if not close_raw:
+            continue
+        try:
+            close = float(close_raw)
+        except ValueError:
+            continue
+        date_iso = roc_to_iso(q["Date"])
+        path = HISTORY_DIR / f"{q['Code']}.json"
+        records = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        if records and records[-1][0] == date_iso:
+            records[-1][1] = close
+        else:
+            records.append([date_iso, close])
+        records = records[-HISTORY_MAX_DAYS:]
+        path.write_text(json.dumps(records, separators=(",", ":")), encoding="utf-8")
+
+
 def compute_bias(records: list[list], window: int) -> float | None:
     """算乖離率:(今天收盤價 - N 日均線) / N 日均線 * 100。資料不夠 N 天就回傳 None。"""
     if len(records) < window:
@@ -387,6 +415,7 @@ def main() -> None:
     price_history = load_price_history()
     update_price_history(price_history, quotes)
     save_price_history(price_history)
+    update_history_files(quotes)
     for q in quotes:
         records = price_history.get(q["Code"], [])
         if records:

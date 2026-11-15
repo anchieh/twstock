@@ -721,57 +721,18 @@ function renderIndices(indices) {
 }
 
 // 股價走勢圖:點表格裡的股票名稱才去抓歷史資料,不是每次開網站就先抓全部股票,
-// 避免網站變重、也避免浪費第三方 API 的額度。上市用 TWSE 官方的單股月度端點,
-// 上櫃因為沒有對應的官方端點,改用 FinMind(兩者都支援瀏覽器直接跨網域呼叫)。
+// 避免網站變重。資料來源是 data/history/<代號>.json,這是網站自己長期累積維護的
+// 歷史收盤價(每天排程更新一次),不即時呼叫 TWSE/FinMind 等外部服務,
+// 不會受外部服務的額度限制或暫時性封鎖影響。一次抓到全部歷史,切換區間只是
+// 本地切片,不用重新抓。
 const chartHistoryCache = new Map();
 let currentChart = null; // { code, name, market, months }
 
-function rocDateToIso(rocDate) {
-  const [y, m, d] = rocDate.split("/").map(Number);
-  return `${y + 1911}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function fetchTwseHistory(code, months) {
-  // 一次只打一個月,逐月間隔一點點時間,不要同時打一大串,避免被 TWSE 的防護機制當成機器人擋掉
-  // (官方端點本身沒有明顯的單一股票查詢速率限制文件,保守起見還是不要瞬間併發)
-  const today = new Date();
-  const rows = [];
-  for (let i = months - 1; i >= 0; i--) {
-    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
-    const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}01`;
-    try {
-      const body = await fetch(`https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?date=${ym}&stockNo=${code}&response=json`)
-        .then(r => r.json());
-      if (body && body.stat === "OK" && Array.isArray(body.data)) {
-        for (const r of body.data) {
-          const close = parseFloat(String(r[6]).replace(/,/g, ""));
-          if (!isNaN(close)) rows.push({ date: rocDateToIso(r[0]), close });
-        }
-      }
-    } catch (e) {
-      // 單月抓失敗就跳過,不要讓整段歷史都抓不到
-    }
-    if (i > 0) await sleep(300);
-  }
-  rows.sort((a, b) => a.date.localeCompare(b.date));
-  return rows;
-}
-
-async function fetchTpexHistory(code, months) {
-  const end = new Date();
-  const start = new Date();
-  start.setMonth(start.getMonth() - months);
-  const fmt = d => d.toISOString().slice(0, 10);
-  const url = `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&data_id=${code}&start_date=${fmt(start)}&end_date=${fmt(end)}`;
-  const body = await fetch(url).then(r => r.json());
-  if (body.status !== 200 || !Array.isArray(body.data)) return [];
-  return body.data
-    .map(r => ({ date: r.date, close: r.close }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+async function fetchStockHistory(code) {
+  const res = await fetch(`data/history/${code}.json`);
+  if (!res.ok) return [];
+  const raw = await res.json();
+  return raw.map(([date, close]) => ({ date, close }));
 }
 
 function renderLineChart(container, rows) {
@@ -803,25 +764,30 @@ function renderLineChart(container, rows) {
   </svg>`;
 }
 
+function sliceByMonths(rows, months) {
+  if (months >= 24) return rows; // 目前最長保留約兩年多,「1年」以上就不切了
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - months);
+  const cutoffIso = cutoff.toISOString().slice(0, 10);
+  return rows.filter(r => r.date >= cutoffIso);
+}
+
 async function loadAndRenderChart() {
-  const { code, market, months } = currentChart;
+  const { code, months } = currentChart;
   const area = document.getElementById("chart-area");
   const note = document.getElementById("chart-note");
-  const cacheKey = `${code}_${months}`;
   area.innerHTML = '<div class="status">載入中...</div>';
   note.textContent = "";
   try {
-    let rows = chartHistoryCache.get(cacheKey);
+    let rows = chartHistoryCache.get(code);
     if (!rows) {
-      rows = market === "TPEx" ? await fetchTpexHistory(code, months) : await fetchTwseHistory(code, months);
-      chartHistoryCache.set(cacheKey, rows);
+      rows = await fetchStockHistory(code);
+      chartHistoryCache.set(code, rows);
     }
-    renderLineChart(area, rows);
-    note.textContent = market === "TPEx"
-      ? "資料來源: FinMind(整理自公開資料),即時抓取,僅收盤價"
-      : "資料來源: TWSE 官方單股歷史資料,即時抓取,僅收盤價";
+    renderLineChart(area, sliceByMonths(rows, months));
+    note.textContent = "資料來源: 本站每日更新累積的歷史收盤價,僅收盤價";
   } catch (e) {
-    area.innerHTML = '<div class="status">資料抓取失敗,可能是網路問題或對方服務暫時連不上,稍後再試看看</div>';
+    area.innerHTML = '<div class="status">資料讀取失敗,稍後再試看看</div>';
   }
 }
 
