@@ -346,6 +346,29 @@ const SCREENER_PRESETS = [
     excludeRisky: true,
     profitable: false,
   },
+  {
+    name: "保本小資(資金少,無法即時操作)",
+    fields: () => ({
+      "screener-pe": marketAverages.medianPERatio ?? "",
+      "screener-pb": 1.2,
+      "screener-yield": marketAverages.medianDividendYield ?? "",
+      "screener-budget": 20000,
+      "screener-price-min": 5,
+      "screener-price-max": 20,
+      "screener-volume": 3000000,
+      "screener-volatility-min": "",
+      "screener-volatility-max": 4,
+      "screener-years": "",
+      "screener-bias-min": "",
+      "screener-rsi-max": "",
+      "screener-bollpb-max": "",
+      "screener-market": "",
+      "screener-industry": "",
+    }),
+    excludeEtf: true,
+    excludeRisky: true,
+    profitable: true,
+  },
 ];
 
 function applyScreenerPreset(preset) {
