@@ -286,6 +286,43 @@ def compute_bias(records: list[list], window: int) -> float | None:
     return round((latest_close - moving_average) / moving_average * 100, 2)
 
 
+def compute_rsi(records: list[list], period: int = 14) -> float | None:
+    """算 RSI(相對強弱指標):近 N 天漲跌幅的強弱比較,0~100,越低代表跌多、可能超賣。
+
+    資料天數有限(最多 30 天),用簡單平均(不是 Wilder 平滑)算漲跌幅平均,
+    至少要有 period+1 天收盤價才能算出第一筆。
+    """
+    if len(records) < period + 1:
+        return None
+    closes = [r[1] for r in records[-(period + 1):]]
+    gains = [max(closes[i] - closes[i - 1], 0) for i in range(1, len(closes))]
+    losses = [max(closes[i - 1] - closes[i], 0) for i in range(1, len(closes))]
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return round(100 - 100 / (1 + rs), 2)
+
+
+def compute_bollinger_percent_b(records: list[list], window: int = 20, num_std: float = 2) -> float | None:
+    """算布林通道 %B:目前股價落在近 N 天價格區間(均線 ± 2 標準差)的相對位置。
+
+    0 代表貼著區間下緣(相對便宜),100 代表貼著區間上緣(相對昂貴),50 代表在均線上。
+    """
+    if len(records) < window:
+        return None
+    closes = [r[1] for r in records[-window:]]
+    mean = sum(closes) / window
+    variance = sum((c - mean) ** 2 for c in closes) / window
+    std = variance ** 0.5
+    if std == 0:
+        return None
+    upper, lower = mean + num_std * std, mean - num_std * std
+    latest_close = records[-1][1]
+    return round((latest_close - lower) / (upper - lower) * 100, 1)
+
+
 def market_averages(quotes: list[dict]) -> dict:
     """算全市場本益比與殖利率的平均值,給前端當篩選預設門檻。"""
 
@@ -358,6 +395,12 @@ def main() -> None:
                 bias = compute_bias(records, window)
                 if bias is not None:
                     q[f"Bias{window}"] = bias
+            rsi = compute_rsi(records)
+            if rsi is not None:
+                q["RSI14"] = rsi
+            percent_b = compute_bollinger_percent_b(records)
+            if percent_b is not None:
+                q["BollPercentB"] = percent_b
 
     averages = market_averages(quotes)
 

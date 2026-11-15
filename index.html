@@ -203,6 +203,10 @@
         </label>
       </div>
       <div class="screener-row">
+        <label><span class="label-head">RSI(14)上限 <span class="hint">(低為佳,代表相對超賣)</span></span><input type="number" id="screener-rsi-max" step="1" min="0" max="100" placeholder="留空不限制" /></label>
+        <label><span class="label-head">布林%B上限 <span class="hint">(低為佳,接近近期區間下緣)</span></span><input type="number" id="screener-bollpb-max" step="5" min="0" max="100" placeholder="留空不限制" /></label>
+      </div>
+      <div class="screener-row">
         <label><span class="label-head">產業別</span>
           <select id="screener-industry">
             <option value="">全部</option>
@@ -247,6 +251,8 @@ const SCREENER_PRESETS = [
       "screener-volatility-max": "",
       "screener-years": "",
       "screener-bias-min": "",
+      "screener-rsi-max": "",
+      "screener-bollpb-max": "",
       "screener-market": "",
       "screener-industry": "",
     }),
@@ -268,6 +274,8 @@ const SCREENER_PRESETS = [
       "screener-volatility-max": 8,
       "screener-years": "",
       "screener-bias-min": "",
+      "screener-rsi-max": "",
+      "screener-bollpb-max": "",
       "screener-market": "",
       "screener-industry": "",
     },
@@ -367,6 +375,8 @@ const COLUMNS = [
   { key: "eps", label: "累計EPS", accessor: r => parseFloat(r.EPS) },
   { key: "years", label: "連續獲利年數", accessor: r => r.ConsecutiveProfitableYears || 0 },
   { key: "bias6", label: "6日乖離率", accessor: r => r.Bias6 },
+  { key: "rsi14", label: "RSI(14)", accessor: r => r.RSI14 },
+  { key: "bollpb", label: "布林%B", accessor: r => r.BollPercentB },
 ];
 
 let tableRows = [];
@@ -433,6 +443,8 @@ function renderCurrentTable() {
       <td class="${r.EPS !== undefined && parseFloat(r.EPS) < 0 ? "down" : ""}">${r.EPS !== undefined ? r.EPS : "-"}</td>
       <td>${r.ConsecutiveProfitableYears ? r.ConsecutiveProfitableYears + " 年" : "累積中"}</td>
       <td class="${r.Bias6 > 0 ? "up" : r.Bias6 < 0 ? "down" : ""}">${r.Bias6 !== undefined ? (r.Bias6 > 0 ? "+" : "") + r.Bias6 + "%" : "累積中"}</td>
+      <td class="${r.RSI14 !== undefined && r.RSI14 < 30 ? "down" : r.RSI14 !== undefined && r.RSI14 > 70 ? "up" : ""}">${r.RSI14 !== undefined ? r.RSI14 : "累積中"}</td>
+      <td class="${r.BollPercentB !== undefined && r.BollPercentB < 20 ? "down" : r.BollPercentB !== undefined && r.BollPercentB > 80 ? "up" : ""}">${r.BollPercentB !== undefined ? r.BollPercentB + "%" : "累積中"}</td>
     </tr>`;
   }).join("");
 
@@ -493,6 +505,8 @@ function screenerFilter() {
   const minVolatility = parseFloat(document.getElementById("screener-volatility-min").value);
   const maxVolatility = parseFloat(document.getElementById("screener-volatility-max").value);
   const minBias = parseFloat(document.getElementById("screener-bias-min").value);
+  const maxRsi = parseFloat(document.getElementById("screener-rsi-max").value);
+  const maxBollPb = parseFloat(document.getElementById("screener-bollpb-max").value);
   const industry = document.getElementById("screener-industry").value;
 
   return tradableQuotes().filter(r => {
@@ -520,6 +534,12 @@ function screenerFilter() {
     }
     if (!isNaN(minBias)) {
       if (r.Bias6 === undefined || Math.abs(r.Bias6) < minBias) return false;
+    }
+    if (!isNaN(maxRsi)) {
+      if (r.RSI14 === undefined || r.RSI14 > maxRsi) return false;
+    }
+    if (!isNaN(maxBollPb)) {
+      if (r.BollPercentB === undefined || r.BollPercentB > maxBollPb) return false;
     }
     if (!isNaN(maxPE)) {
       if (isNaN(pe) || pe <= 0 || pe > maxPE) return false;
@@ -597,7 +617,7 @@ function search(keyword) {
 
 document.getElementById("search").addEventListener("input", e => search(e.target.value));
 
-["screener-pe", "screener-pb", "screener-yield", "screener-price-min", "screener-price-max", "screener-volume", "screener-volatility-min", "screener-volatility-max", "screener-years", "screener-bias-min", "screener-market", "screener-industry", "screener-profitable", "screener-exclude-etf", "screener-exclude-risky", "screener-search"].forEach(id => {
+["screener-pe", "screener-pb", "screener-yield", "screener-price-min", "screener-price-max", "screener-volume", "screener-volatility-min", "screener-volatility-max", "screener-years", "screener-bias-min", "screener-rsi-max", "screener-bollpb-max", "screener-market", "screener-industry", "screener-profitable", "screener-exclude-etf", "screener-exclude-risky", "screener-search"].forEach(id => {
   document.getElementById(id).addEventListener("input", () => {
     if (activeTab === "screener") renderActiveTab();
   });
