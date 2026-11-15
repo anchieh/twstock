@@ -153,6 +153,53 @@
   .screener-presets button:hover { background: var(--accent); color: #fff; }
   .hint { font-weight: 400; opacity: 0.75; }
   .label-head { display: block; min-height: 2.4em; line-height: 1.2; }
+  .stock-link { cursor: pointer; }
+  .stock-link:hover { color: var(--accent); text-decoration: underline; }
+  .chart-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    z-index: 100;
+  }
+  .chart-overlay.hidden { display: none; }
+  .chart-modal {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+    width: 100%;
+    max-width: 680px;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .chart-modal-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 10px; }
+  .chart-modal-head h2 { font-size: 1.05rem; margin: 0; }
+  .chart-modal-close {
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 1.3rem;
+    line-height: 1;
+    padding: 0 4px;
+    background: none;
+    border: none;
+  }
+  .chart-range-buttons { display: flex; gap: 6px; margin-bottom: 10px; }
+  .chart-range-buttons button {
+    padding: 5px 12px;
+    font-size: 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .chart-range-buttons button.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .chart-area { min-height: 220px; display: flex; align-items: center; justify-content: center; }
+  .chart-note { color: var(--muted); font-size: 0.75rem; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -222,6 +269,22 @@
     </div>
 
     <div id="result"></div>
+  </div>
+
+  <div class="chart-overlay hidden" id="chart-overlay">
+    <div class="chart-modal">
+      <div class="chart-modal-head">
+        <h2 id="chart-modal-title"></h2>
+        <button type="button" class="chart-modal-close" id="chart-modal-close">&times;</button>
+      </div>
+      <div class="chart-range-buttons" id="chart-range-buttons">
+        <button type="button" data-months="3">3個月</button>
+        <button type="button" data-months="6">6個月</button>
+        <button type="button" data-months="12">1年</button>
+      </div>
+      <div class="chart-area" id="chart-area"><div class="status">載入中...</div></div>
+      <div class="chart-note" id="chart-note"></div>
+    </div>
   </div>
 
 <script>
@@ -428,7 +491,7 @@ function renderCurrentTable() {
     return `<tr>
       <td class="star ${starred ? "active" : ""}" data-code="${r.Code}" data-name="${r.Name}">${starred ? "★" : "☆"}</td>
       <td>${r.Code}</td>
-      <td>${r.Name}<span class="market">${r.Market === "TPEx" ? "上櫃" : "上市"}</span></td>
+      <td><span class="stock-link" data-code="${r.Code}" data-name="${r.Name}" data-market="${r.Market}">${r.Name}</span><span class="market">${r.Market === "TPEx" ? "上櫃" : "上市"}</span></td>
       <td>${r.Industry || "-"}</td>
       <td>${r.OpeningPrice}</td>
       <td>${r.HighestPrice}</td>
@@ -466,6 +529,9 @@ function renderCurrentTable() {
 
   result.querySelectorAll(".star").forEach(el => {
     el.addEventListener("click", () => toggleWatchlist(el.dataset.code, el.dataset.name));
+  });
+  result.querySelectorAll(".stock-link").forEach(el => {
+    el.addEventListener("click", () => openChartModal(el.dataset.code, el.dataset.name, el.dataset.market));
   });
   result.querySelectorAll("th.sortable").forEach(el => {
     el.addEventListener("click", () => {
@@ -653,6 +719,142 @@ function renderIndices(indices) {
     </div>`;
   }).join("");
 }
+
+// 股價走勢圖:點表格裡的股票名稱才去抓歷史資料,不是每次開網站就先抓全部股票,
+// 避免網站變重、也避免浪費第三方 API 的額度。上市用 TWSE 官方的單股月度端點,
+// 上櫃因為沒有對應的官方端點,改用 FinMind(兩者都支援瀏覽器直接跨網域呼叫)。
+const chartHistoryCache = new Map();
+let currentChart = null; // { code, name, market, months }
+
+function rocDateToIso(rocDate) {
+  const [y, m, d] = rocDate.split("/").map(Number);
+  return `${y + 1911}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchTwseHistory(code, months) {
+  // 一次只打一個月,逐月間隔一點點時間,不要同時打一大串,避免被 TWSE 的防護機制當成機器人擋掉
+  // (官方端點本身沒有明顯的單一股票查詢速率限制文件,保守起見還是不要瞬間併發)
+  const today = new Date();
+  const rows = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}01`;
+    try {
+      const body = await fetch(`https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?date=${ym}&stockNo=${code}&response=json`)
+        .then(r => r.json());
+      if (body && body.stat === "OK" && Array.isArray(body.data)) {
+        for (const r of body.data) {
+          const close = parseFloat(String(r[6]).replace(/,/g, ""));
+          if (!isNaN(close)) rows.push({ date: rocDateToIso(r[0]), close });
+        }
+      }
+    } catch (e) {
+      // 單月抓失敗就跳過,不要讓整段歷史都抓不到
+    }
+    if (i > 0) await sleep(300);
+  }
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  return rows;
+}
+
+async function fetchTpexHistory(code, months) {
+  const end = new Date();
+  const start = new Date();
+  start.setMonth(start.getMonth() - months);
+  const fmt = d => d.toISOString().slice(0, 10);
+  const url = `https://api.finmindtrade.com/api/v4/data?dataset=TaiwanStockPrice&data_id=${code}&start_date=${fmt(start)}&end_date=${fmt(end)}`;
+  const body = await fetch(url).then(r => r.json());
+  if (body.status !== 200 || !Array.isArray(body.data)) return [];
+  return body.data
+    .map(r => ({ date: r.date, close: r.close }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function renderLineChart(container, rows) {
+  if (!rows.length) {
+    container.innerHTML = '<div class="status">查無資料(可能是這段期間還沒上市/上櫃,或資料來源暫時連不上)</div>';
+    return;
+  }
+  const width = 640, height = 220;
+  const padding = { left: 50, right: 12, top: 14, bottom: 22 };
+  const closes = rows.map(r => r.close);
+  const minC = Math.min(...closes), maxC = Math.max(...closes);
+  const innerW = width - padding.left - padding.right;
+  const innerH = height - padding.top - padding.bottom;
+  const xStep = rows.length > 1 ? innerW / (rows.length - 1) : 0;
+  const yOf = c => maxC === minC ? padding.top + innerH / 2 : padding.top + innerH * (1 - (c - minC) / (maxC - minC));
+  const points = rows.map((r, i) => `${(padding.left + i * xStep).toFixed(1)},${yOf(r.close).toFixed(1)}`).join(" ");
+  const baseY = (padding.top + innerH).toFixed(1);
+  const areaPoints = `${padding.left},${baseY} ${points} ${(padding.left + (rows.length - 1) * xStep).toFixed(1)},${baseY}`;
+  const trendUp = rows[rows.length - 1].close >= rows[0].close;
+  const color = trendUp ? "var(--up)" : "var(--down)";
+
+  container.innerHTML = `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;display:block;">
+    <text x="${padding.left}" y="10" font-size="10" style="fill:var(--muted)">${maxC.toFixed(2)}</text>
+    <text x="${padding.left}" y="${height - padding.bottom + 1}" font-size="10" style="fill:var(--muted)">${minC.toFixed(2)}</text>
+    <polygon points="${areaPoints}" style="fill:${color};opacity:0.1"></polygon>
+    <polyline points="${points}" style="fill:none;stroke:${color};stroke-width:1.8"></polyline>
+    <text x="${padding.left}" y="${height - 4}" font-size="10" style="fill:var(--muted)">${rows[0].date}</text>
+    <text x="${width - padding.right}" y="${height - 4}" font-size="10" text-anchor="end" style="fill:var(--muted)">${rows[rows.length - 1].date}</text>
+  </svg>`;
+}
+
+async function loadAndRenderChart() {
+  const { code, market, months } = currentChart;
+  const area = document.getElementById("chart-area");
+  const note = document.getElementById("chart-note");
+  const cacheKey = `${code}_${months}`;
+  area.innerHTML = '<div class="status">載入中...</div>';
+  note.textContent = "";
+  try {
+    let rows = chartHistoryCache.get(cacheKey);
+    if (!rows) {
+      rows = market === "TPEx" ? await fetchTpexHistory(code, months) : await fetchTwseHistory(code, months);
+      chartHistoryCache.set(cacheKey, rows);
+    }
+    renderLineChart(area, rows);
+    note.textContent = market === "TPEx"
+      ? "資料來源: FinMind(整理自公開資料),即時抓取,僅收盤價"
+      : "資料來源: TWSE 官方單股歷史資料,即時抓取,僅收盤價";
+  } catch (e) {
+    area.innerHTML = '<div class="status">資料抓取失敗,可能是網路問題或對方服務暫時連不上,稍後再試看看</div>';
+  }
+}
+
+function openChartModal(code, name, market) {
+  currentChart = { code, name, market, months: 6 };
+  document.getElementById("chart-modal-title").textContent = `${name}(${code})${market === "TPEx" ? " 上櫃" : " 上市"}`;
+  document.querySelectorAll("#chart-range-buttons button").forEach(b => {
+    b.classList.toggle("active", Number(b.dataset.months) === currentChart.months);
+  });
+  document.getElementById("chart-overlay").classList.remove("hidden");
+  loadAndRenderChart();
+}
+
+function closeChartModal() {
+  document.getElementById("chart-overlay").classList.add("hidden");
+  currentChart = null;
+}
+
+document.getElementById("chart-modal-close").addEventListener("click", closeChartModal);
+document.getElementById("chart-overlay").addEventListener("click", e => {
+  if (e.target.id === "chart-overlay") closeChartModal();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && currentChart) closeChartModal();
+});
+document.querySelectorAll("#chart-range-buttons button").forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (!currentChart) return;
+    currentChart.months = Number(btn.dataset.months);
+    document.querySelectorAll("#chart-range-buttons button").forEach(b => b.classList.toggle("active", b === btn));
+    loadAndRenderChart();
+  });
+});
 
 fetch(DATA_URL)
   .then(res => res.json())
