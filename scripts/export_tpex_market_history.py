@@ -84,6 +84,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--minutes", type=float, default=100)
     parser.add_argument("--days", type=int, default=365)
+    parser.add_argument("--start-date", type=str, default=None, help="指定起始日(YYYY-MM-DD),優先於 --days")
     args = parser.parse_args()
 
     deadline = time.monotonic() + args.minutes * 60
@@ -92,7 +93,7 @@ def main() -> None:
     remaining = [c for c in codes if c not in done]
 
     today = datetime.date.today()
-    start_date = (today - datetime.timedelta(days=args.days)).isoformat()
+    start_date = args.start_date or (today - datetime.timedelta(days=args.days)).isoformat()
     end_date = today.isoformat()
 
     print(f"上櫃共 {len(codes)} 檔,已完成 {len(done)} 檔,這次還有 {len(remaining)} 檔待處理")

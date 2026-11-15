@@ -79,13 +79,18 @@ def fetch_day(date: datetime.date, attempts: int = 5) -> list[list[str]] | None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=365, help="往回抓幾個日曆天(含假日,實際只對交易日有資料)")
+    parser.add_argument("--start-date", type=str, default=None, help="指定起始日(YYYY-MM-DD),優先於 --days")
     parser.add_argument("--out", type=pathlib.Path, default=DEFAULT_OUTPUT, help="輸出 CSV 路徑")
     args = parser.parse_args()
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
 
     today = datetime.date.today()
-    dates = [today - datetime.timedelta(days=i) for i in range(args.days)]
+    if args.start_date:
+        start = datetime.date.fromisoformat(args.start_date)
+        dates = [start + datetime.timedelta(days=i) for i in range((today - start).days + 1)]
+    else:
+        dates = [today - datetime.timedelta(days=i) for i in range(args.days)]
     dates = [d for d in dates if d.weekday() < 5]  # 只打平日,跳過週六週日,假日另外靠 stat 判斷略過
     dates.sort()
 
