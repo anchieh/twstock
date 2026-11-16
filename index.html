@@ -140,17 +140,23 @@
   .screener-note { color: var(--muted); font-size: 0.8rem; margin-bottom: 12px; }
   .screener-count { color: var(--muted); font-size: 0.8rem; margin: 8px 0 4px; }
   .screener-checkbox { display: block; font-size: 0.9rem; margin-bottom: 10px; }
-  .screener-presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .screener-presets { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
   .screener-presets button {
-    padding: 7px 14px;
-    font-size: 0.85rem;
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 14px;
     border: 1px solid var(--accent);
-    border-radius: 999px;
+    border-radius: 8px;
     background: var(--bg);
-    color: var(--accent);
+    color: var(--fg);
     cursor: pointer;
   }
   .screener-presets button:hover { background: var(--accent); color: #fff; }
+  .screener-presets button:hover .preset-params { color: #fff; opacity: 0.9; }
+  .preset-name { font-weight: 600; color: var(--accent); }
+  .screener-presets button:hover .preset-name { color: #fff; }
+  .preset-params { display: block; font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
   .hint { font-weight: 400; opacity: 0.75; }
   .label-head { display: block; min-height: 2.4em; line-height: 1.2; }
   .stock-link { cursor: pointer; }
@@ -352,14 +358,14 @@ const SCREENER_PRESETS = [
     name: "保本小資(資金少,無法即時操作)",
     fields: () => ({
       "screener-pe": marketAverages.medianPERatio ?? "",
-      "screener-pb": 1.2,
+      "screener-pb": 1.5,
       "screener-yield": marketAverages.medianDividendYield ?? "",
       "screener-budget": 20000,
       "screener-price-min": 5,
       "screener-price-max": 20,
       "screener-volume": 3000000,
       "screener-volatility-min": "",
-      "screener-volatility-max": 4,
+      "screener-volatility-max": 6,
       "screener-years": "",
       "screener-bias-min": "",
       "screener-rsi-max": "",
@@ -384,9 +390,49 @@ function applyScreenerPreset(preset) {
   renderActiveTab();
 }
 
+function fmtPresetNum(v) {
+  const n = Number(v);
+  return isFinite(n) ? (Math.round(n * 100) / 100).toString() : String(v);
+}
+
+function buildPresetSummary(preset) {
+  const f = typeof preset.fields === "function" ? preset.fields() : preset.fields;
+  const parts = [];
+  if (f["screener-pe"] !== "") parts.push(`PE≤${fmtPresetNum(f["screener-pe"])}`);
+  if (f["screener-pb"] !== "") parts.push(`PB≤${fmtPresetNum(f["screener-pb"])}`);
+  if (f["screener-yield"] !== "") parts.push(`殖利率≥${fmtPresetNum(f["screener-yield"])}%`);
+  if (f["screener-budget"] !== "") parts.push(`預算≤${Number(f["screener-budget"]).toLocaleString()}`);
+  if (f["screener-price-min"] !== "" || f["screener-price-max"] !== "") {
+    const lo = f["screener-price-min"] !== "" ? fmtPresetNum(f["screener-price-min"]) : "0";
+    const hi = f["screener-price-max"] !== "" ? fmtPresetNum(f["screener-price-max"]) : "∞";
+    parts.push(`股價${lo}~${hi}`);
+  }
+  if (f["screener-volume"] !== "") parts.push(`量≥${Number(f["screener-volume"]).toLocaleString()}`);
+  if (f["screener-volatility-min"] !== "" || f["screener-volatility-max"] !== "") {
+    const lo = f["screener-volatility-min"] !== "" ? fmtPresetNum(f["screener-volatility-min"]) : "0";
+    const hi = f["screener-volatility-max"] !== "" ? fmtPresetNum(f["screener-volatility-max"]) : "∞";
+    parts.push(`波動${lo}~${hi}%`);
+  }
+  if (f["screener-years"] !== "") parts.push(`連續獲利≥${fmtPresetNum(f["screener-years"])}年`);
+  if (f["screener-bias-min"] !== "") parts.push(`乖離率≥${fmtPresetNum(f["screener-bias-min"])}%`);
+  if (f["screener-rsi-max"] !== "") parts.push(`RSI≤${fmtPresetNum(f["screener-rsi-max"])}`);
+  if (f["screener-bollpb-max"] !== "") parts.push(`布林%B≤${fmtPresetNum(f["screener-bollpb-max"])}`);
+  if (f["screener-market"] !== "") parts.push(`市場=${f["screener-market"]}`);
+  if (f["screener-industry"] !== "") parts.push(`產業=${f["screener-industry"]}`);
+  if (preset.profitable) parts.push("僅累計獲利");
+  if (preset.excludeEtf) parts.push("排除ETF");
+  if (preset.excludeRisky) parts.push("排除高風險");
+  return parts.join(" · ");
+}
+
 function renderScreenerPresets() {
   const el = document.getElementById("screener-presets");
-  el.innerHTML = SCREENER_PRESETS.map((p, i) => `<button type="button" data-index="${i}">${p.name}</button>`).join("");
+  el.innerHTML = SCREENER_PRESETS.map((p, i) => `
+    <button type="button" data-index="${i}">
+      <span class="preset-name">${p.name}</span>
+      <span class="preset-params">${buildPresetSummary(p)}</span>
+    </button>
+  `).join("");
   el.querySelectorAll("button").forEach(btn => {
     btn.addEventListener("click", () => applyScreenerPreset(SCREENER_PRESETS[Number(btn.dataset.index)]));
   });
