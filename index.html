@@ -278,9 +278,11 @@
         <button type="button" class="chart-modal-close" id="chart-modal-close">&times;</button>
       </div>
       <div class="chart-range-buttons" id="chart-range-buttons">
-        <button type="button" data-months="3">3個月</button>
-        <button type="button" data-months="6">6個月</button>
-        <button type="button" data-months="12">1年</button>
+        <button type="button" data-range="week">週</button>
+        <button type="button" data-range="month">月</button>
+        <button type="button" data-range="quarter">季</button>
+        <button type="button" data-range="half">半年</button>
+        <button type="button" data-range="year">1年</button>
       </div>
       <div class="chart-area" id="chart-area"><div class="status">載入中...</div></div>
       <div class="chart-note" id="chart-note"></div>
@@ -758,45 +760,116 @@ async function fetchStockHistory(code) {
   return raw.map(([date, close]) => ({ date, close }));
 }
 
+function niceTicks(min, max, maxCount) {
+  // 算出不會太密也不會太疏的刻度值(例如 0.5/1/2/5/10 的倍數),而不是單純內插
+  if (min === max) return [min];
+  const roughStep = (max - min) / Math.max(maxCount - 1, 1);
+  const mag = Math.pow(10, Math.floor(Math.log10(roughStep)));
+  const norm = roughStep / mag;
+  const niceNorm = norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10;
+  const step = niceNorm * mag;
+  const niceMin = Math.floor(min / step) * step;
+  const ticks = [];
+  for (let v = niceMin; v <= max + step * 0.001; v += step) {
+    ticks.push(Math.round(v * 100) / 100);
+  }
+  return ticks;
+}
+
+function pickIndices(count, maxTicks) {
+  // 從資料點裡挑出盡量多、但不超過 maxTicks 個、間隔平均的索引,當 X 軸刻度
+  if (count <= 1) return [0];
+  const n = Math.max(2, Math.min(maxTicks, count));
+  const idxs = [];
+  for (let i = 0; i < n; i++) idxs.push(Math.round((i * (count - 1)) / (n - 1)));
+  return [...new Set(idxs)];
+}
+
+function formatDateLabel(dateStr, showYear) {
+  const [y, m, d] = dateStr.split("-");
+  return showYear ? `${y}/${m}/${d}` : `${m}/${d}`;
+}
+
 function renderLineChart(container, rows) {
   if (!rows.length) {
-    container.innerHTML = '<div class="status">查無資料(可能是這段期間還沒上市/上櫃,或資料來源暫時連不上)</div>';
+    container.innerHTML = '<div class="status">查無資料(這段期間可能還沒累積到歷史資料)</div>';
     return;
   }
-  const width = 640, height = 220;
-  const padding = { left: 50, right: 12, top: 14, bottom: 22 };
+  const width = 640, height = 240;
+  const padding = { left: 54, right: 12, top: 14, bottom: 26 };
   const closes = rows.map(r => r.close);
   const minC = Math.min(...closes), maxC = Math.max(...closes);
   const innerW = width - padding.left - padding.right;
   const innerH = height - padding.top - padding.bottom;
   const xStep = rows.length > 1 ? innerW / (rows.length - 1) : 0;
-  const yOf = c => maxC === minC ? padding.top + innerH / 2 : padding.top + innerH * (1 - (c - minC) / (maxC - minC));
+
+  // 刻度密度:在不重疊的前提下盡量多,用可用空間除以單一標籤大概需要的寬度/高度去估算上限
+  const maxYTicks = Math.max(2, Math.floor(innerH / 26));
+  const yTicks = niceTicks(minC, maxC, maxYTicks);
+  const yDomainMin = Math.min(minC, yTicks[0]);
+  const yDomainMax = Math.max(maxC, yTicks[yTicks.length - 1]);
+  const yOf = c => yDomainMax === yDomainMin
+    ? padding.top + innerH / 2
+    : padding.top + innerH * (1 - (c - yDomainMin) / (yDomainMax - yDomainMin));
+
   const points = rows.map((r, i) => `${(padding.left + i * xStep).toFixed(1)},${yOf(r.close).toFixed(1)}`).join(" ");
   const baseY = (padding.top + innerH).toFixed(1);
   const areaPoints = `${padding.left},${baseY} ${points} ${(padding.left + (rows.length - 1) * xStep).toFixed(1)},${baseY}`;
   const trendUp = rows[rows.length - 1].close >= rows[0].close;
   const color = trendUp ? "var(--up)" : "var(--down)";
 
+  const maxXTicks = Math.max(2, Math.floor(innerW / 54));
+  const xIdxs = pickIndices(rows.length, maxXTicks);
+
+  const yGridSvg = yTicks.map(v => {
+    const y = yOf(v).toFixed(1);
+    return `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" style="stroke:var(--border);stroke-width:1" />
+      <text x="${padding.left - 6}" y="${(Number(y) + 3).toFixed(1)}" font-size="10" text-anchor="end" style="fill:var(--muted)">${v}</text>`;
+  }).join("");
+
+  let lastYear = null;
+  const xLabelsSvg = xIdxs.map(i => {
+    const x = (padding.left + i * xStep).toFixed(1);
+    const dateStr = rows[i].date;
+    const year = dateStr.slice(0, 4);
+    const showYear = lastYear === null || year !== lastYear;
+    lastYear = year;
+    return `<text x="${x}" y="${height - 6}" font-size="10" text-anchor="middle" style="fill:var(--muted)">${formatDateLabel(dateStr, showYear)}</text>`;
+  }).join("");
+
   container.innerHTML = `<svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;display:block;">
-    <text x="${padding.left}" y="10" font-size="10" style="fill:var(--muted)">${maxC.toFixed(2)}</text>
-    <text x="${padding.left}" y="${height - padding.bottom + 1}" font-size="10" style="fill:var(--muted)">${minC.toFixed(2)}</text>
+    ${yGridSvg}
     <polygon points="${areaPoints}" style="fill:${color};opacity:0.1"></polygon>
     <polyline points="${points}" style="fill:none;stroke:${color};stroke-width:1.8"></polyline>
-    <text x="${padding.left}" y="${height - 4}" font-size="10" style="fill:var(--muted)">${rows[0].date}</text>
-    <text x="${width - padding.right}" y="${height - 4}" font-size="10" text-anchor="end" style="fill:var(--muted)">${rows[rows.length - 1].date}</text>
+    ${xLabelsSvg}
   </svg>`;
 }
 
-function sliceByMonths(rows, months) {
-  if (months >= 24) return rows; // 目前最長保留約兩年多,「1年」以上就不切了
-  const cutoff = new Date();
-  cutoff.setMonth(cutoff.getMonth() - months);
-  const cutoffIso = cutoff.toISOString().slice(0, 10);
-  return rows.filter(r => r.date >= cutoffIso);
+function sliceByRange(rows, range) {
+  const today = new Date();
+  let start;
+  if (range === "week") {
+    // 本週(週一為起點)往前推一週是「前一週」,範圍 = 前一週再往前3天 ~ 本週今天,
+    // 多留前一週之前的3天是為了比對跨週時線型有沒有被切斷、走勢是否連續。
+    const day = today.getDay(); // 0=週日...6=週六
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    const thisMonday = new Date(today);
+    thisMonday.setDate(thisMonday.getDate() + diffToMonday);
+    const lastMonday = new Date(thisMonday);
+    lastMonday.setDate(lastMonday.getDate() - 7);
+    start = new Date(lastMonday);
+    start.setDate(start.getDate() - 3);
+  } else {
+    const monthsBack = { month: 1, quarter: 3, half: 6, year: 12 }[range] ?? 1;
+    start = new Date(today);
+    start.setMonth(start.getMonth() - monthsBack);
+  }
+  const startIso = start.toISOString().slice(0, 10);
+  return rows.filter(r => r.date >= startIso);
 }
 
 async function loadAndRenderChart() {
-  const { code, months } = currentChart;
+  const { code, range } = currentChart;
   const area = document.getElementById("chart-area");
   const note = document.getElementById("chart-note");
   area.innerHTML = '<div class="status">載入中...</div>';
@@ -807,7 +880,7 @@ async function loadAndRenderChart() {
       rows = await fetchStockHistory(code);
       chartHistoryCache.set(code, rows);
     }
-    renderLineChart(area, sliceByMonths(rows, months));
+    renderLineChart(area, sliceByRange(rows, range));
     note.textContent = "資料來源: 本站每日更新累積的歷史收盤價,僅收盤價";
   } catch (e) {
     area.innerHTML = '<div class="status">資料讀取失敗,稍後再試看看</div>';
@@ -815,10 +888,10 @@ async function loadAndRenderChart() {
 }
 
 function openChartModal(code, name, market) {
-  currentChart = { code, name, market, months: 6 };
+  currentChart = { code, name, market, range: "month" };
   document.getElementById("chart-modal-title").textContent = `${name}(${code})${market === "TPEx" ? " 上櫃" : " 上市"}`;
   document.querySelectorAll("#chart-range-buttons button").forEach(b => {
-    b.classList.toggle("active", Number(b.dataset.months) === currentChart.months);
+    b.classList.toggle("active", b.dataset.range === currentChart.range);
   });
   document.getElementById("chart-overlay").classList.remove("hidden");
   loadAndRenderChart();
@@ -839,7 +912,7 @@ document.addEventListener("keydown", e => {
 document.querySelectorAll("#chart-range-buttons button").forEach(btn => {
   btn.addEventListener("click", () => {
     if (!currentChart) return;
-    currentChart.months = Number(btn.dataset.months);
+    currentChart.range = btn.dataset.range;
     document.querySelectorAll("#chart-range-buttons button").forEach(b => b.classList.toggle("active", b === btn));
     loadAndRenderChart();
   });
