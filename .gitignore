@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 # 量化分析用的一次性資料匯出,不是網站功能,用 SendUserFile 直接給使用者,不進 repo
 data/exports/
+# 分段執行的回補腳本用來記錄進度、方便中斷後重跑,不是網站資料,不用進 repo
+data/finmind_backfill_state.json
