@@ -51,17 +51,24 @@ def codes_to_backfill() -> list[str]:
     return sorted({q["Code"] for q in stock_data["quotes"] if "EPS" in q})
 
 
+class RateLimited(Exception):
+    """FinMind 額度用完,跟「這檔代號真的沒財報資料」要分開處理,不能誤標成已完成。"""
+
+
 def fetch_statements(code: str) -> list[dict] | None:
     resp = SESSION.get(
         FINMIND_URL,
         params={"dataset": "TaiwanStockFinancialStatements", "data_id": code, "start_date": START_DATE},
         timeout=15,
     )
+    if resp.status_code == 402:
+        raise RateLimited()
     if resp.status_code == 400:
-        # 免費額度用完,或這檔代號沒有財報資料,兩種都跳過,不要讓整支腳本死掉
-        return None
+        return None  # 這檔代號真的沒有財報資料(例如 ETF、下市),跳過且標記完成
     resp.raise_for_status()
     body = resp.json()
+    if body.get("status") == 402:
+        raise RateLimited()
     if body.get("status") != 200:
         return None
     return body.get("data", [])
@@ -125,7 +132,14 @@ def main() -> None:
             print("時間到,存檔並結束這次執行")
             break
 
-        rows = fetch_statements(code)
+        try:
+            rows = fetch_statements(code)
+        except RateLimited:
+            print(f"額度用完,停止這次執行,{code} 留給下次重試(不標記完成)")
+            save_json(EPS_HISTORY_PATH, eps_history)
+            save_json(STATE_PATH, {"done": sorted(done)})
+            return
+
         if rows:
             annual = annual_records_from_statements(rows)
             existing = eps_history.setdefault(code, [])
