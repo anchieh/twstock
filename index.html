@@ -157,6 +157,33 @@
   .preset-name { font-weight: 600; color: var(--accent); }
   .screener-presets button:hover .preset-name { color: #fff; }
   .preset-params { display: block; font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+  .preset-remove {
+    float: right;
+    color: var(--muted);
+    font-weight: 700;
+    padding: 0 4px;
+    cursor: pointer;
+  }
+  .preset-remove:hover { color: var(--up); }
+  .screener-save-row { display: flex; gap: 8px; margin: 10px 0; }
+  .screener-save-row input {
+    flex: 1;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--fg);
+  }
+  .screener-save-row button {
+    padding: 7px 14px;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--accent);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .screener-save-row button:hover { background: var(--accent); color: #fff; }
   .hint { font-weight: 400; opacity: 0.75; }
   .label-head { display: block; min-height: 2.4em; line-height: 1.2; }
   .stock-link { cursor: pointer; }
@@ -269,6 +296,10 @@
       <label class="screener-checkbox"><input type="checkbox" id="screener-profitable" checked /> <span id="screener-profitable-label">只看累計有獲利的公司(EPS &gt; 0)</span></label>
       <label class="screener-checkbox"><input type="checkbox" id="screener-exclude-etf" /> 排除 ETF/受益憑證(代號 00 開頭,含槓桿、反向商品)</label>
       <label class="screener-checkbox"><input type="checkbox" id="screener-exclude-risky" /> 排除 EPS 或產業別資料缺失的公司(常代表本業有問題,例如虧損未列入統計)</label>
+      <div class="screener-save-row">
+        <input type="text" id="screener-preset-name" placeholder="輸入名稱,把目前條件存成自訂標籤" />
+        <button type="button" id="screener-save-preset">儲存為自訂標籤</button>
+      </div>
       <div class="screener-note" id="screener-note"></div>
       <input type="text" id="screener-search" placeholder="在篩選結果中搜尋代號或名稱(選填),例如 2303 或 聯電" autocomplete="off" />
       <div class="screener-count" id="screener-count"></div>
@@ -425,18 +456,93 @@ function buildPresetSummary(preset) {
   return parts.join(" · ");
 }
 
+const CUSTOM_PRESETS_KEY = "twstock-custom-presets";
+const PRESET_FIELD_IDS = [
+  "screener-pe", "screener-pb", "screener-yield", "screener-budget",
+  "screener-price-min", "screener-price-max", "screener-volume",
+  "screener-volatility-min", "screener-volatility-max", "screener-years",
+  "screener-bias-min", "screener-rsi-max", "screener-bollpb-max",
+  "screener-market", "screener-industry",
+];
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function loadCustomPresets() {
+  try {
+    return JSON.parse(localStorage.getItem(CUSTOM_PRESETS_KEY) || "[]");
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveCustomPresets(list) {
+  localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(list));
+}
+
+function currentScreenerFieldValues() {
+  const values = {};
+  PRESET_FIELD_IDS.forEach(id => { values[id] = document.getElementById(id).value; });
+  return values;
+}
+
 function renderScreenerPresets() {
   const el = document.getElementById("screener-presets");
-  el.innerHTML = SCREENER_PRESETS.map((p, i) => `
-    <button type="button" data-index="${i}">
-      <span class="preset-name">${p.name}</span>
+  const customPresets = loadCustomPresets();
+  const builtinHtml = SCREENER_PRESETS.map((p, i) => `
+    <button type="button" class="preset-btn" data-type="builtin" data-index="${i}">
+      <span class="preset-name">${escapeHtml(p.name)}</span>
       <span class="preset-params">${buildPresetSummary(p)}</span>
     </button>
   `).join("");
-  el.querySelectorAll("button").forEach(btn => {
-    btn.addEventListener("click", () => applyScreenerPreset(SCREENER_PRESETS[Number(btn.dataset.index)]));
+  const customHtml = customPresets.map((p, i) => `
+    <button type="button" class="preset-btn" data-type="custom" data-index="${i}">
+      <span class="preset-remove" data-remove-index="${i}" title="刪除這個自訂標籤">&times;</span>
+      <span class="preset-name">${escapeHtml(p.name)}</span>
+      <span class="preset-params">${buildPresetSummary(p)}</span>
+    </button>
+  `).join("");
+  el.innerHTML = builtinHtml + customHtml;
+  el.querySelectorAll(".preset-remove").forEach(span => {
+    span.addEventListener("click", e => {
+      e.stopPropagation();
+      const i = Number(span.dataset.removeIndex);
+      const list = loadCustomPresets();
+      list.splice(i, 1);
+      saveCustomPresets(list);
+      renderScreenerPresets();
+    });
+  });
+  el.querySelectorAll(".preset-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = Number(btn.dataset.index);
+      const preset = btn.dataset.type === "builtin" ? SCREENER_PRESETS[i] : loadCustomPresets()[i];
+      applyScreenerPreset(preset);
+    });
   });
 }
+
+function saveCurrentAsCustomPreset() {
+  const nameInput = document.getElementById("screener-preset-name");
+  const name = nameInput.value.trim();
+  if (!name) {
+    nameInput.focus();
+    return;
+  }
+  const list = loadCustomPresets();
+  list.push({
+    name,
+    fields: currentScreenerFieldValues(),
+    profitable: document.getElementById("screener-profitable").checked,
+    excludeEtf: document.getElementById("screener-exclude-etf").checked,
+    excludeRisky: document.getElementById("screener-exclude-risky").checked,
+  });
+  saveCustomPresets(list);
+  nameInput.value = "";
+  renderScreenerPresets();
+}
+document.getElementById("screener-save-preset").addEventListener("click", saveCurrentAsCustomPreset);
 let activeTab = "search";
 
 function loadWatchlist() {
